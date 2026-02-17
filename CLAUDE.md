@@ -189,6 +189,12 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 - Variabila `reteaConectata` este globala, definita in `network.c`, folosita in `led.c`
 - Structura `ConfigData` cu flag `0xA5` pentru validare
 - `strcasecmp`/`strncasecmp` POSIX **nu exista** in SDK SIMCom - folositi inlocuitorii proprii `ergo_strcasecmp()` si `ergo_strncasecmp()` definiti in `config.c` si declarati in `ergo_config.h`
+- Main loop: `sAPI_TaskSleep(2)` la final = 2 ticks * 5ms = ~10ms yield CPU
+- `verificaSMSPrimit()` citeste intotdeauna din slot 1 (cel mai recent SMS); buffer continut 512 bytes
+- `trimiteSMSAlarma()`: pauza 1 secunda intre SMS-uri consecutive (`delayMs(1000)`)
+- `initRetea()`: 15 tentative cu delay 2s intre ele (max ~30s timeout initial)
+- `reconectareRetea()`: 10 tentative cu delay 3s intre ele (apelata din loop la fiecare 60s daca retea pierduta)
+- Buffer raspuns config `trimiteConfigCurenta()`: 450 bytes (suficient pentru 5 numere + mesaj 300 chars)
 
 ## Certificare (in curs)
 
