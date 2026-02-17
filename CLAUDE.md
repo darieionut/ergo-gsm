@@ -1,5 +1,7 @@
 # CLAUDE.md - ERGO GASALERT
 
+**Versiune firmware:** v4.2
+
 ## Despre proiect
 
 Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E** (procesor Unisoc 8910DM, ARM Cortex-A5). Produsul se numeste **ERGO GASALERT** si este dezvoltat de **Plato Global SRL** (Romania) in parteneriat cu **Energoinstal Premium SRL** (firma autorizata ANRE pentru instalatii gaz).
@@ -46,9 +48,12 @@ Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E**
 ## Structura cod
 
 ```
+Makefile          - Template build pentru ARM GCC + SIMCom OpenCPU SDK
+
 src/
   main.c          - Functia principala sAPP_MainTask() + loop
   config.c        - Incarcare/salvare configuratie din filesystem + utilitare
+                    (inclusiv ergo_strcasecmp/ergo_strncasecmp, getTickMs, delayMs)
   sms.c           - Trimitere SMS, procesare comenzi SMS, configurare
   input.c         - Monitorizare intrare 230V + detectare impuls + cooldown
   led.c           - Control LED-uri (verde + galben)
@@ -56,11 +61,17 @@ src/
 
 include/
   ergo_pins.h     - Definire pini GPIO
-  ergo_config.h   - Constante timp, structura ConfigData, numere fabrica
+  ergo_config.h   - Constante timp, structura ConfigData, numere fabrica,
+                    prototipuri utilitare si inlocuitori POSIX
   ergo_led.h      - Prototipuri LED
   ergo_input.h    - Prototipuri intrare
   ergo_sms.h      - Prototipuri SMS
   ergo_network.h  - Prototipuri retea
+
+docs/
+  led_behavior.md  - Documentatie comportament LED-uri
+  sms_commands.md  - Documentatie comenzi SMS
+  wiring.md        - Documentatie cablare
 ```
 
 ## Comportament LED-uri (CRITIC - respecta exact)
@@ -172,11 +183,12 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 
 ## Note pentru dezvoltare
 
-- Tick rate SDK: presupus 5ms/tick - de verificat in `sdk_config.h`
+- Tick rate SDK: 5ms/tick (folosit in `config.c`: `sAPI_GetTicks() * 5`) - confirmat in cod, dar verificati si in `sdk_config.h`
 - Functii SDK: `sAPI_GetTicks()`, `sAPI_TaskSleep()`, `sAPI_GpioSetValue()`, `sAPI_GpioGetValue()`, `sAPI_SmsSendMsg()`, `sAPI_SmsReadMsg()`, `sAPI_SmsDeleteMsg()`, `sAPI_NetworkGetCgreg()`, `sAPI_fopen()`, `sAPI_fread()`, `sAPI_fwrite()`, `sAPI_fclose()`
 - SMS text mode (nu PDU), charset GSM
 - Variabila `reteaConectata` este globala, definita in `network.c`, folosita in `led.c`
 - Structura `ConfigData` cu flag `0xA5` pentru validare
+- `strcasecmp`/`strncasecmp` POSIX **nu exista** in SDK SIMCom - folositi inlocuitorii proprii `ergo_strcasecmp()` si `ergo_strncasecmp()` definiti in `config.c` si declarati in `ergo_config.h`
 
 ## Certificare (in curs)
 
