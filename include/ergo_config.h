@@ -85,4 +85,8 @@ int esteNumarScurt(const char* numar);
 unsigned long getTickMs(void);
 void delayMs(unsigned long ms);
 
+// Inlocuitori POSIX (strcasecmp/strncasecmp nu exista in SDK SIMCom)
+int ergo_strcasecmp(const char* a, const char* b);
+int ergo_strncasecmp(const char* a, const char* b, int n);
+
 #endif // ERGO_CONFIG_H

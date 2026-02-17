@@ -165,3 +165,36 @@ void delayMs(unsigned long ms)
 {
     sAPI_TaskSleep(ms / 5);
 }
+
+// ============================================================================
+// INLOCUITORI POSIX (strcasecmp/strncasecmp nu exista in SDK SIMCom)
+// Implementare proprie folosind tolower() din <ctype.h> (C standard)
+// ============================================================================
+
+// Comparatie doua siruri ignorand majuscule/minuscule (ca strcasecmp POSIX)
+int ergo_strcasecmp(const char* a, const char* b)
+{
+    while (*a && *b)
+    {
+        int diff = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+        if (diff != 0) return diff;
+        a++;
+        b++;
+    }
+    return tolower((unsigned char)*a) - tolower((unsigned char)*b);
+}
+
+// Comparatie primele n caractere ignorand majuscule/minuscule (ca strncasecmp POSIX)
+int ergo_strncasecmp(const char* a, const char* b, int n)
+{
+    while (n > 0 && *a && *b)
+    {
+        int diff = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+        if (diff != 0) return diff;
+        a++;
+        b++;
+        n--;
+    }
+    if (n == 0) return 0;
+    return tolower((unsigned char)*a) - tolower((unsigned char)*b);
+}

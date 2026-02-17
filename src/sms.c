@@ -186,14 +186,14 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
     // -----------------------------------------------------------
     // #config# - afisare configuratie
     // -----------------------------------------------------------
-    if (strcasecmp(comanda, "#config#") == 0)
+    if (ergo_strcasecmp(comanda, "#config#") == 0)
         return;  // config se trimite oricum dupa procesare
 
     // -----------------------------------------------------------
     // #msm*<text># - setare mesaj alerta
     // #msm*#       - stergere mesaj alerta
     // -----------------------------------------------------------
-    if (strncasecmp(comanda, "#msm*", 5) == 0)
+    if (ergo_strncasecmp(comanda, "#msm*", 5) == 0)
     {
         if (lungime < 6 || comanda[lungime - 1] != '#')
             return;
@@ -231,7 +231,7 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
         char prefix[6];
         snprintf(prefix, sizeof(prefix), "#%02d*", i);
 
-        if (strncasecmp(comanda, prefix, 4) == 0)
+        if (ergo_strncasecmp(comanda, prefix, 4) == 0)
         {
             if (lungime < 5 || comanda[lungime - 1] != '#')
                 return;
