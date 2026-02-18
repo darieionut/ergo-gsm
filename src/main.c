@@ -9,6 +9,7 @@
 #include "simcom_os.h"
 #include "simcom_common.h"
 #include "simcom_debug.h"
+#include "simcom_wdt.h"
 
 #include "../include/ergo_pins.h"
 #include "../include/ergo_config.h"
@@ -76,6 +77,14 @@ void sAPP_MainTask(void* pData)
     else
         sAPI_Debug("[BOOT] Fara retea. LED galben STINS.");
 
+    // ------------------------------------------
+    // 7. PORNIRE WATCHDOG HARDWARE (60 secunde)
+    //    Daca loop-ul principal se blocheaza >60s,
+    //    modulul se reseteaza automat.
+    // ------------------------------------------
+    sAPI_WdtStart(WATCHDOG_TIMEOUT_S);
+    sAPI_Debug("[ERGO] Watchdog pornit: %d s.", WATCHDOG_TIMEOUT_S);
+
     sAPI_Debug("[ERGO] === SISTEM PORNIT ===");
 
     // ------------------------------------------
@@ -91,6 +100,9 @@ void sAPP_MainTask(void* pData)
             timpUltimaScanare = acum;
             monitorizareIntrare();
             gestionareCooldown();
+
+            // Alimentare watchdog - confirma ca loop-ul ruleaza
+            sAPI_WdtFeed();
         }
 
         // ---- ACTUALIZARE LED-URI (50ms) ----

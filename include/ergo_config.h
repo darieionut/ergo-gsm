@@ -23,6 +23,9 @@
 #define TIMER_RETEA_MS          60000   // Verificare retea la 60s
 #define VERIFICARE_SMS_MS       1000    // Verificare SMS la 1s
 
+// Watchdog hardware
+#define WATCHDOG_TIMEOUT_S      60      // Reset automat daca loop-ul se blocheaza > 60s
+
 // ============================================================================
 // CONSTANTE LED-URI
 // ============================================================================
