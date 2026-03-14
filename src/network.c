@@ -8,6 +8,7 @@
 #include "simcom_debug.h"
 #include "simcom_sms.h"
 #include "simcom_network.h"
+#include "simcom_wdt.h"
 
 #include "../include/ergo_config.h"
 #include "../include/ergo_network.h"
@@ -41,6 +42,7 @@ void initRetea(void)
     // Incercare conectare (max 30 secunde)
     while (tentative < 15)
     {
+        sAPI_WdtFeed();  // Alimenteaza WDT pe durata asteptarii retelei
         if (verificaConectareRetea())
         {
             sAPI_Debug("[RETEA] Conectat la Orange OK!");
@@ -100,20 +102,12 @@ int verificaConectareRetea(void)
 
 void reconectareRetea(void)
 {
-    int tentative = 0;
+    sAPI_Debug("[RETEA] Reconectare (o tentativa)...");
 
-    sAPI_Debug("[RETEA] Reconectare...");
-
-    while (tentative < 10)
-    {
-        if (verificaConectareRetea())
-        {
-            sAPI_Debug("[RETEA] Reconectat OK!");
-            return;
-        }
-        tentative++;
-        delayMs(3000);
-    }
-
-    sAPI_Debug("[RETEA] Reconectare esuata. LED galben STINS.");
+    // O singura tentativa - loop-ul principal reapeleaza la fiecare 60s.
+    // Evita blocarea loop-ului principal cu retry + delayMs.
+    if (verificaConectareRetea())
+        sAPI_Debug("[RETEA] Reconectat OK!");
+    else
+        sAPI_Debug("[RETEA] Inca indisponibila. Va reincerca la 60s.");
 }

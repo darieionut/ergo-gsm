@@ -61,12 +61,20 @@ void sAPP_MainTask(void* pData)
     incarcaConfig();
 
     // ------------------------------------------
-    // 5. INITIALIZARE RETEA (LED galben ramane stins pana se conecteaza)
+    // 5. PORNIRE WATCHDOG HARDWARE (60 secunde)
+    //    Pornit INAINTE de initRetea() care poate dura pana la 30s.
+    //    Daca modulul se blocheaza >60s, se reseteaza automat.
+    // ------------------------------------------
+    sAPI_WdtStart(WATCHDOG_TIMEOUT_S);
+    sAPI_Debug("[ERGO] Watchdog pornit: %d s.", WATCHDOG_TIMEOUT_S);
+
+    // ------------------------------------------
+    // 6. INITIALIZARE RETEA (LED galben ramane stins pana se conecteaza)
     // ------------------------------------------
     initRetea();
 
     // ------------------------------------------
-    // 6. SFARSIT BOOT: LED verde trece la clipire
+    // 7. SFARSIT BOOT: LED verde trece la clipire
     //    LED galben: stins daca nu e retea, clipeste daca s-a conectat
     // ------------------------------------------
     ledBootEnd();
@@ -76,14 +84,6 @@ void sAPP_MainTask(void* pData)
         sAPI_Debug("[BOOT] Retea OK. LED galben -> clipire.");
     else
         sAPI_Debug("[BOOT] Fara retea. LED galben STINS.");
-
-    // ------------------------------------------
-    // 7. PORNIRE WATCHDOG HARDWARE (60 secunde)
-    //    Daca loop-ul principal se blocheaza >60s,
-    //    modulul se reseteaza automat.
-    // ------------------------------------------
-    sAPI_WdtStart(WATCHDOG_TIMEOUT_S);
-    sAPI_Debug("[ERGO] Watchdog pornit: %d s.", WATCHDOG_TIMEOUT_S);
 
     sAPI_Debug("[ERGO] === SISTEM PORNIT ===");
 

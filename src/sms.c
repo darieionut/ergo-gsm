@@ -24,6 +24,7 @@
 #include "simcom_common.h"
 #include "simcom_debug.h"
 #include "simcom_sms.h"
+#include "simcom_wdt.h"
 
 #include "../include/ergo_config.h"
 #include "../include/ergo_sms.h"
@@ -96,6 +97,10 @@ void trimiteSMSAlarma(void)
         {
             sAPI_Debug("[ALARMA] -> Nr%02d: %s", i + 1, config.numere[i]);
 
+            // Alimenteaza WDT inainte de fiecare trimitere (sAPI_SmsSendMsg
+            // poate bloca cateva secunde pe retea slaba)
+            sAPI_WdtFeed();
+
             if (trimiteSMS(config.numere[i], config.mesajAlerta))
                 trimise++;
             else
@@ -105,6 +110,7 @@ void trimiteSMSAlarma(void)
         }
     }
 
+    sAPI_WdtFeed();  // Alimenteaza WDT si dupa ultimul SMS
     sAPI_Debug("[ALARMA] %d trimise, %d erori.", trimise, erori);
 }
 
@@ -128,11 +134,16 @@ void verificaSMSPrimit(void)
 
         sAPI_Debug("[SMS PRIMIT] %s: %s", expeditor, continut);
 
+        // Sterge INAINTE de procesare: evita bucla infinita daca procesarea
+        // esueaza sau dureaza mult. Daca stergerea esueaza, skip procesare.
+        if (sAPI_SmsDeleteMsg(1) != 0)
+        {
+            sAPI_Debug("[SMS] EROARE stergere slot 1 - skip procesare.");
+            return;
+        }
+
         // Procesare comenzi
         proceseazaComenziMultiple(expeditor, continut);
-
-        // Stergere SMS procesat
-        sAPI_SmsDeleteMsg(1);
     }
 }
 
