@@ -18,7 +18,7 @@ Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E**
 - **SIM:** micro-SIM
 - **Alimentare:** 230V AC prin sursa in comutatie izolata galvanic (SELV)
 - **Intrare:** 230V AC prin optocuplor (izolat galvanic)
-- **LED-uri:** 2 (verde + galben) - pe viitoarea versiune de PCB
+- **LED-uri:** 3 (verde + galben + rosu) - pe viitoarea versiune de PCB
 - **Fara releu** - eliminat din design
 - **Antena:** externa, conector SMA
 
@@ -78,21 +78,24 @@ docs/
 
 Modulul are **doar 2 LED-uri**: verde si galben.
 
-| Stare | LED Verde | LED Galben |
-|-------|-----------|------------|
-| **Boot (initializare software)** | **APRINS FIX** (continuu) | **STINS** |
-| **Software OK, cauta retea 4G** | Clipeste ON 0.5s / OFF 0.5s | **STINS** |
-| **Software OK, conectat la retea 4G** | Clipeste ON 0.5s / OFF 0.5s | Clipeste ON 0.5s / OFF 0.5s |
-| **Impuls valid detectat** | **APRINS FIX 3 secunde** | **APRINS FIX 3 secunde** |
-| **Dupa 3 secunde** | Revine la clipire | Revine la clipire (sau stins daca nu e retea) |
-| **Nealimentat** | Stins | Stins |
+| Stare | LED Verde | LED Galben | LED Rosu |
+|-------|-----------|------------|----------|
+| **Boot (initializare software)** | **APRINS FIX** (continuu) | **STINS** | **STINS** |
+| **Software OK, cauta retea 4G** | Clipeste ON 0.5s / OFF 0.5s | **STINS** | **STINS** |
+| **Software OK, conectat la retea 4G** | Clipeste ON 0.5s / OFF 0.5s | Clipeste ON 0.5s / OFF 0.5s | **STINS** |
+| **Tensiune pe intrare (< 0.8s, zgomot)** | Clipeste ON 0.5s / OFF 0.5s | Clipeste/Stins | **APRINS FIX** |
+| **Impuls valid detectat** | **APRINS FIX 3 secunde** | **APRINS FIX 3 secunde** | **APRINS FIX 3 secunde** |
+| **Dupa 3 secunde, intrare inactiva** | Revine la clipire | Revine (sau stins daca nu e retea) | **STINS** |
+| **Nealimentat** | Stins | Stins | Stins |
 
 ### Reguli LED:
 - LED verde APRINS FIX = boot in curs (software se initializeaza)
 - LED verde CLIPESTE = software initializat si ruleaza OK (cu sau fara semnal GSM)
 - LED galben STINS = nu e conectat la retea 4G
 - LED galben CLIPESTE = conectat la retea 4G
-- La impuls valid: AMBELE aprinse fix 3 secunde, apoi revin la starea normala
+- LED rosu APRINS FIX = tensiune 230V prezenta fizic pe intrare (timp real, inclusiv zgomot sub 0.8s)
+- LED rosu STINS = intrare inactiva
+- La impuls valid: TOATE 3 aprinse fix 3 secunde, apoi revin la starea normala
 
 ## Logica detectare impuls si trimitere SMS
 
@@ -129,7 +132,9 @@ Toate comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare com
 - `#msm*#` - Stergere mesaj alerta
 - `#01*<numar>#` ... `#05*<numar>#` - Setare numere 1-5
 - `#01*#` ... `#05*#` - Stergere numere 1-5
-- `#config#` - Afisare configuratie curenta
+- `#cd*<secunde>#` - Setare cooldown (10-3600s, ex: `#cd*300#` = 5 minute)
+- `#cd*#` - Reset cooldown la fabrica (20 secunde)
+- `#config#` - Afisare configuratie curenta (include `cd:<secunde>`)
 
 ### Comenzi multiple:
 Separate prin virgula intr-un singur SMS. Exemplu:
@@ -145,7 +150,7 @@ Separate prin virgula intr-un singur SMS. Exemplu:
 
 ## Configuratie din fabrica
 
-Constante definite in `ergo_config.h`: `FABRICA_NUMAR_01`, `FABRICA_NUMAR_05`, `FABRICA_MESAJ_ALERTA`, `ORANGE_SMSC`.
+Constante definite in `ergo_config.h`: `FABRICA_NUMAR_01`, `FABRICA_NUMAR_05`, `FABRICA_MESAJ_ALERTA`, `FABRICA_COOLDOWN_S`, `ORANGE_SMSC`.
 
 | Parametru | Valoare |
 |-----------|---------|
@@ -155,6 +160,7 @@ Constante definite in `ergo_config.h`: `FABRICA_NUMAR_01`, `FABRICA_NUMAR_05`, `
 | Nr04 | (gol) |
 | Nr05 | **1745** (numar scurt, presetat) |
 | Mesaj | **ALARMA GAZ OPRIT TEST** (default din fabrica, definit ca `FABRICA_MESAJ_ALERTA`) |
+| Cooldown | **20 secunde** (configurabil prin SMS `#cd*<s>#`, interval 10-3600s) |
 
 Configuratia se salveaza in filesystem-ul intern A7670E la calea `/simcom/ergo_config.dat`. La prima pornire sau daca fisierul e corupt, se reinitializeaza cu valorile din fabrica.
 
@@ -179,6 +185,7 @@ Configuratia se salveaza in filesystem-ul intern A7670E la calea `/simcom/ergo_c
 Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 - `PIN_LED_VERDE` = SC_MODULE_GPIO_01
 - `PIN_LED_GALBEN` = SC_MODULE_GPIO_02
+- `PIN_LED_ROSU` = SC_MODULE_GPIO_03
 - `PIN_INTRARE` = SC_MODULE_GPIO_05
 
 **IMPORTANT:** Pinii exacti trebuie verificati pe schema electrica HXY-A7670E-V1.3.
@@ -189,7 +196,8 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 - Functii SDK: `sAPI_GetTicks()`, `sAPI_TaskSleep()`, `sAPI_GpioSetValue()`, `sAPI_GpioGetValue()`, `sAPI_SmsSendMsg()`, `sAPI_SmsReadMsg()`, `sAPI_SmsDeleteMsg()`, `sAPI_NetworkGetCgreg()`, `sAPI_fopen()`, `sAPI_fread()`, `sAPI_fwrite()`, `sAPI_fclose()`
 - SMS text mode (nu PDU), charset GSM, SMSC setat prin `sAPI_SmsCfgScaAddr(ORANGE_SMSC)` in `initRetea()`
 - Variabila `reteaConectata` este globala, definita in `network.c`, folosita in `led.c`
-- Structura `ConfigData` cu flag `0xA5` pentru validare
+- Variabila `intrareActiva` este globala, definita in `input.c`, folosita in `led.c` (pentru LED rosu)
+- Structura `ConfigData` cu flag `0xA5` pentru validare; camp `cooldownSecunde` pentru cooldown configurabil
 - `strcasecmp`/`strncasecmp` POSIX **nu exista** in SDK SIMCom - folositi inlocuitorii proprii `ergo_strcasecmp()` si `ergo_strncasecmp()` definiti in `config.c` si declarati in `ergo_config.h`
 - Main loop: `sAPI_TaskSleep(2)` la final = 2 ticks * 5ms = ~10ms yield CPU
 - `verificaSMSPrimit()` citeste intotdeauna din slot 1 (cel mai recent SMS); buffer continut 512 bytes
