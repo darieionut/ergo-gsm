@@ -119,3 +119,24 @@ void reconectareRetea(void)
     else
         sAPI_Debug("[RETEA] Inca indisponibila. Va reincerca la 60s.");
 }
+
+// ============================================================================
+// INTENSITATE SEMNAL GSM (CSQ)
+// ============================================================================
+// Returneaza CSQ 0-31 (31=maxim), sau -1 la eroare.
+// Valoarea 99 inseamna "necunoscut" conform standardului GSM.
+// ============================================================================
+
+int obtiSemnalCSQ(void)
+{
+    int csq = 99;
+
+    if (sAPI_NetworkGetCsq(&csq) != 0)
+    {
+        sAPI_Debug("[RETEA] Eroare citire CSQ.");
+        return -1;
+    }
+
+    sAPI_Debug("[RETEA] CSQ: %d", csq);
+    return csq;
+}

@@ -16,6 +16,9 @@ int verificaConectareRetea(void);
 // Reconectare la retea (dupa pierdere semnal)
 void reconectareRetea(void);
 
+// Intensitate semnal GSM (returneaza CSQ 0-31, sau -1 la eroare)
+int obtiSemnalCSQ(void);
+
 // Variabila globala stare retea (definita in network.c)
 extern int reteaConectata;
 

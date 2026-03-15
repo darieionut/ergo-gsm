@@ -13,7 +13,7 @@
 //   Comenzi multiple: separate prin virgula intr-un singur SMS
 //
 // FORMAT RASPUNS CONFIG:
-//   01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s
+//   01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s,semnal:25/31
 //
 // TIPURI NUMERE:
 //   - Standard Romania: 07XXXXXXXX (10 cifre)
@@ -361,7 +361,7 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
 
 // ============================================================================
 // TRIMITERE CONFIGURATIE CURENTA (raspuns automat dupa comenzi)
-// Format: 01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:text
+// Format: 01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:text,cd:20s,semnal:25/31
 // ============================================================================
 
 void trimiteConfigCurenta(const char* numar)
@@ -384,6 +384,15 @@ void trimiteConfigCurenta(const char* numar)
                     strlen(config.mesajAlerta) > 0 ? config.mesajAlerta : "(gol)");
 
     pos += snprintf(buf + pos, sizeof(buf) - pos, ",cd:%us", config.cooldownSecunde);
+
+    // Intensitate semnal GSM
+    {
+        int csq = obtiSemnalCSQ();
+        if (csq >= 0 && csq <= 31)
+            pos += snprintf(buf + pos, sizeof(buf) - pos, ",semnal:%d/31", csq);
+        else
+            pos += snprintf(buf + pos, sizeof(buf) - pos, ",semnal:N/A");
+    }
 
     sAPI_Debug("[CONFIG] %s", buf);
     trimiteSMS(numar, buf);
