@@ -118,34 +118,54 @@ void trimiteSMSAlarma(void)
 
 // ============================================================================
 // VERIFICARE SMS PRIMITE (apelata la fiecare 1s din loop)
+// Itereaza sloturile 1-20 pana gaseste primul SMS disponibil.
+// Fix #4: SMS-urile cu continut gol sunt sterse (nu raman in bucla infinita).
+// Fix #5: Nu se citeste exclusiv slot 1; se cauta primul slot ocupat.
 // ============================================================================
+
+#define SMS_MAX_SLOT    20
 
 void verificaSMSPrimit(void)
 {
-    char expeditor[MAX_LUNGIME_NUMAR + 1] = {0};
-    char continut[512] = {0};
+    char expeditor[MAX_LUNGIME_NUMAR + 1];
+    char continut[512];
     int rezultat;
+    int slot;
 
-    // Citire SMS din index 1 (cel mai recent)
-    rezultat = sAPI_SmsReadMsg(1, expeditor, continut, sizeof(continut));
-
-    if (rezultat == 0 && strlen(continut) > 0)
+    for (slot = 1; slot <= SMS_MAX_SLOT; slot++)
     {
+        memset(expeditor, 0, sizeof(expeditor));
+        memset(continut, 0, sizeof(continut));
+
+        rezultat = sAPI_SmsReadMsg(slot, expeditor, continut, sizeof(continut));
+
+        if (rezultat != 0)
+            continue;  // slot gol sau eroare, trecem la urmatorul
+
+        // Slot ocupat: sterge intotdeauna (inclusiv SMS-uri cu continut gol)
+        // pentru a preveni bucla infinita de re-citire.
+        if (sAPI_SmsDeleteMsg(slot) != 0)
+        {
+            sAPI_Debug("[SMS] EROARE stergere slot %d - skip.", slot);
+            continue;
+        }
+
+        if (strlen(continut) == 0)
+        {
+            sAPI_Debug("[SMS] Slot %d: continut gol, sters.", slot);
+            continue;
+        }
+
         curataSir(expeditor);
         curataSir(continut);
 
-        sAPI_Debug("[SMS PRIMIT] %s: %s", expeditor, continut);
-
-        // Sterge INAINTE de procesare: evita bucla infinita daca procesarea
-        // esueaza sau dureaza mult. Daca stergerea esueaza, skip procesare.
-        if (sAPI_SmsDeleteMsg(1) != 0)
-        {
-            sAPI_Debug("[SMS] EROARE stergere slot 1 - skip procesare.");
-            return;
-        }
+        sAPI_Debug("[SMS PRIMIT] slot=%d %s: %s", slot, expeditor, continut);
 
         // Procesare comenzi
         proceseazaComenziMultiple(expeditor, continut);
+
+        // Procesam un singur SMS per apel pentru a nu bloca loop-ul
+        return;
     }
 }
 
@@ -271,7 +291,12 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
 
                 if (!esteNumarValid(numarNou))
                 {
-                    sAPI_Debug("[CMD] Invalid: %s", numarNou);
+                    // Fix #7: trimite raspuns de eroare explicit catre utilizator.
+                    char errBuf[80];
+                    snprintf(errBuf, sizeof(errBuf),
+                             "EROARE: Nr%02d invalid: %s", i, numarNou);
+                    sAPI_Debug("[CMD] %s", errBuf);
+                    trimiteSMS(expeditor, errBuf);
                     return;
                 }
 

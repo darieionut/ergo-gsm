@@ -8,7 +8,7 @@
 // 2. Daca tensiunea ramane minim 0.8s continuu -> IMPULS VALID
 // 3. Daca dispare inainte de 0.8s -> zgomot, ignorat
 // 4. La impuls valid:
-//    - NU cooldown -> LED-uri aprinse 3s + SMS alarma + cooldown 20s
+//    - NU cooldown -> SMS alarma + LED-uri aprinse 3s + cooldown 20s
 //    - DA cooldown -> IGNORAT
 //
 // DIAGRAMA:
@@ -38,6 +38,10 @@
 // Monitorizare intrare
 static int impulsInCurs = 0;
 static unsigned long timpStartImpuls = 0;
+// Fix #1: previne re-triggering-ul cand tensiunea ramane HIGH dupa impuls valid.
+// Impulsul e "consumat" si nu se mai restarteaza ciclul pana cand intrarea nu
+// revine la 0 (HIGH → LOW → HIGH = impuls nou).
+static int impulsValidat = 0;
 
 // Cooldown
 static int inCooldown = 0;
@@ -72,9 +76,25 @@ void monitorizareIntrare(void)
     // Actualizeaza starea intrarii pentru LED rosu
     intrareActiva = stareCurenta;
 
-    if (stareCurenta == 1 && !impulsInCurs)
+    if (stareCurenta == 0)
     {
-        // INCEPUT IMPULS: tensiune tocmai a aparut
+        // INTRARE INACTIVA: reseteaza starea pentru urmatorul impuls
+        if (impulsInCurs)
+        {
+            // Tensiune disparuta inainte de 0.8s = zgomot
+            unsigned long durataImpuls = acum - timpStartImpuls;
+            if (durataImpuls < DURATA_IMPULS_MS)
+                sAPI_Debug("[INPUT] Prea scurt (%lu ms) - IGNORAT.", durataImpuls);
+            impulsInCurs = 0;
+        }
+        // Fix #1: la coborarea tensiunii, impulsValidat se reseteaza -> permite
+        // detectarea unui nou impuls la urmatoarea urcare a tensiunii.
+        impulsValidat = 0;
+    }
+    else if (stareCurenta == 1 && !impulsInCurs && !impulsValidat)
+    {
+        // INCEPUT IMPULS NOU: tensiune tocmai a aparut (si nu avem impuls activ
+        // sau deja validat in acest ciclu de tensiune)
         impulsInCurs = 1;
         timpStartImpuls = acum;
     }
@@ -86,38 +106,33 @@ void monitorizareIntrare(void)
         if (durataImpuls >= DURATA_IMPULS_MS)
         {
             // IMPULS VALID (>= 0.8 secunde continuu)
+            // Fix #1: marcam ca validat; nu se va re-triggera pana la HIGH->LOW->HIGH
             impulsInCurs = 0;
+            impulsValidat = 1;
 
             if (!inCooldown)
             {
                 sAPI_Debug("[!] IMPULS VALID (>= 0.8s) -> SMS ALARMA");
 
-                // LED-uri aprinse fix 3 secunde
-                activeazaModImpulsLED();
-
-                // Trimitere SMS la toate numerele
+                // Trimitere SMS la toate numerele (poate dura 5-10s)
                 trimiteSMSAlarma();
 
-                // Cooldown configurabil
+                // Fix #2: LED-urile se aprind DUPA trimitere, astfel incat
+                // timer-ul de 3s nu expira in timp ce SMS-urile sunt trimise.
+                activeazaModImpulsLED();
+
+                // Fix #3: cooldown porneste dupa terminarea efectiva a trimiterii.
                 inCooldown = 1;
-                timpStartCooldown = acum;
+                timpStartCooldown = getTickMs();
                 sAPI_Debug("[COOLDOWN] Blocare %ds.", config.cooldownSecunde);
             }
             else
             {
                 unsigned long cooldownMs = (unsigned long)config.cooldownSecunde * 1000;
-                unsigned long ramas = cooldownMs - (acum - timpStartCooldown);
+                unsigned long ramas = cooldownMs - (getTickMs() - timpStartCooldown);
                 sAPI_Debug("[COOLDOWN] IGNORAT. Ramas: %lu s", ramas / 1000);
             }
         }
-    }
-    else if (stareCurenta == 0 && impulsInCurs)
-    {
-        // IMPULS PREA SCURT: tensiune disparuta inainte de 0.8s
-        unsigned long durataImpuls = acum - timpStartImpuls;
-        if (durataImpuls < DURATA_IMPULS_MS)
-            sAPI_Debug("[INPUT] Prea scurt (%lu ms) - IGNORAT.", durataImpuls);
-        impulsInCurs = 0;
     }
 }
 

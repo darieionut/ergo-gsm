@@ -68,8 +68,12 @@
 
 // ============================================================================
 // STRUCTURA CONFIGURATIE (salvata in fisier)
+// IMPORTANT: __attribute__((packed)) previne padding-ul compilatorului.
+// Fara packed, offset-ul lui cooldownSecunde depinde de aliniere (ARM = 4 bytes)
+// si sizeof(ConfigData) difera intre compilatoare/flags -> fisier incompatibil
+// la update firmware.
 // ============================================================================
-typedef struct {
+typedef struct __attribute__((packed)) {
     char mesajAlerta[MAX_LUNGIME_MESAJ + 1];
     char numere[MAX_NUMERE][MAX_LUNGIME_NUMAR + 1];
     unsigned int cooldownSecunde;   // cooldown configurabil (MIN_COOLDOWN_S - MAX_COOLDOWN_S)
