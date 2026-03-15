@@ -34,12 +34,15 @@ void initConfigFabrica(void)
     strncpy(config.numere[4], FABRICA_NUMAR_05, MAX_LUNGIME_NUMAR);  // Nr05
 
     // Nr02, Nr03, Nr04: goale (se configureaza prin SMS)
-    // Mesaj: gol (TREBUIE configurat prin SMS inainte de prima utilizare)
+
+    // Mesaj default din fabrica (se poate modifica prin SMS #msm*<text>#)
+    strncpy(config.mesajAlerta, FABRICA_MESAJ_ALERTA, MAX_LUNGIME_MESAJ);
 
     config.flagValid = 0xA5;
 
     sAPI_Debug("[CONFIG] FABRICA Nr01: %s", FABRICA_NUMAR_01);
     sAPI_Debug("[CONFIG] FABRICA Nr05: %s (scurt)", FABRICA_NUMAR_05);
+    sAPI_Debug("[CONFIG] FABRICA Mesaj: %s", FABRICA_MESAJ_ALERTA);
 
     salveazaConfig();
 }

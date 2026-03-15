@@ -39,6 +39,10 @@ void initRetea(void)
     // Setare charset GSM (fara diacritice, compatibil SMS)
     sAPI_SmsCfgCharset("GSM");
 
+    // Setare centru SMS Orange Romania (SMSC)
+    sAPI_SmsCfgScaAddr(ORANGE_SMSC);
+    sAPI_Debug("[RETEA] SMSC: %s", ORANGE_SMSC);
+
     // Incercare conectare (max 30 secunde)
     while (tentative < 15)
     {
