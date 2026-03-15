@@ -5,15 +5,16 @@
 //
 // COMPORTAMENT LED-URI:
 //
-//  +--------------------------------+------------------+------------------+
-//  | STARE                          | LED VERDE        | LED GALBEN       |
-//  +--------------------------------+------------------+------------------+
-//  | Boot (initializare soft)       | APRINS FIX       | STINS            |
-//  | Soft OK, cauta retea           | Clipeste 0.5s    | STINS            |
-//  | Soft OK, conectat 4G           | Clipeste 0.5s    | Clipeste 0.5s   |
-//  | Impuls detectat (3 secunde)    | APRINS FIX       | APRINS FIX       |
-//  | Dupa 3s                        | Revine clipire   | Revine clipire   |
-//  +--------------------------------+------------------+------------------+
+//  +--------------------------------+------------------+------------------+------------------+
+//  | STARE                          | LED VERDE        | LED GALBEN       | LED ROSU         |
+//  +--------------------------------+------------------+------------------+------------------+
+//  | Boot (initializare soft)       | APRINS FIX       | STINS            | STINS            |
+//  | Soft OK, cauta retea           | Clipeste 0.5s    | STINS            | STINS            |
+//  | Soft OK, conectat 4G           | Clipeste 0.5s    | Clipeste 0.5s    | STINS            |
+//  | Tensiune pe intrare (< 0.8s)   | Clipeste 0.5s    | Clipeste/Stins   | APRINS FIX       |
+//  | Impuls detectat (3 secunde)    | APRINS FIX       | APRINS FIX       | APRINS FIX       |
+//  | Dupa 3s, intrare inactiva      | Revine clipire   | Revine clipire   | STINS            |
+//  +--------------------------------+------------------+------------------+------------------+
 //
 // ============================================================================
 
@@ -47,7 +48,7 @@ static int inBoot = 0;
 
 void initLED(void)
 {
-    sAPI_Debug("[LED] Init: verde + galben...");
+    sAPI_Debug("[LED] Init: verde + galben + rosu...");
 
     // Verde - iesire, stins initial
     sAPI_GpioSetDirection(PIN_LED_VERDE, SC_MODULE_GPIO_OUTPUT);
@@ -56,6 +57,10 @@ void initLED(void)
     // Galben - iesire, stins initial
     sAPI_GpioSetDirection(PIN_LED_GALBEN, SC_MODULE_GPIO_OUTPUT);
     sAPI_GpioSetValue(PIN_LED_GALBEN, 0);
+
+    // Rosu - iesire, stins initial
+    sAPI_GpioSetDirection(PIN_LED_ROSU, SC_MODULE_GPIO_OUTPUT);
+    sAPI_GpioSetValue(PIN_LED_ROSU, 0);
 
     sAPI_Debug("[LED] OK.");
 }
@@ -69,6 +74,7 @@ void ledBootStart(void)
     inBoot = 1;
     sAPI_GpioSetValue(PIN_LED_VERDE, 1);   // Verde APRINS FIX
     sAPI_GpioSetValue(PIN_LED_GALBEN, 0);  // Galben STINS
+    sAPI_GpioSetValue(PIN_LED_ROSU, 0);    // Rosu STINS
 }
 
 // ============================================================================
@@ -93,8 +99,9 @@ void activeazaModImpulsLED(void)
 
     sAPI_GpioSetValue(PIN_LED_VERDE, 1);
     sAPI_GpioSetValue(PIN_LED_GALBEN, 1);
+    sAPI_GpioSetValue(PIN_LED_ROSU, 1);
 
-    sAPI_Debug("[LED] MOD IMPULS: ambele aprinse 3s.");
+    sAPI_Debug("[LED] MOD IMPULS: toate 3 aprinse fix 3s.");
 }
 
 // ============================================================================
@@ -112,7 +119,7 @@ void actualizeazaLeduri(void)
         return;
 
     // -----------------------------------------------------------
-    // MOD IMPULS: ambele aprinse fix 3 secunde
+    // MOD IMPULS: toate 3 aprinse fix 3 secunde
     // -----------------------------------------------------------
     if (ledModImpuls)
     {
@@ -126,9 +133,10 @@ void actualizeazaLeduri(void)
         }
         else
         {
-            // Ambele aprinse fix
+            // Toate 3 aprinse fix
             sAPI_GpioSetValue(PIN_LED_VERDE, 1);
             sAPI_GpioSetValue(PIN_LED_GALBEN, 1);
+            sAPI_GpioSetValue(PIN_LED_ROSU, 1);
         }
         return;
     }
@@ -159,4 +167,9 @@ void actualizeazaLeduri(void)
         // FARA RETEA: galben STINS complet
         sAPI_GpioSetValue(PIN_LED_GALBEN, 0);
     }
+
+    // LED ROSU: reflecta starea fizica a intrarii in timp real
+    // Aprins = tensiune prezenta pe intrare (230V detectat)
+    // Stins  = intrare inactiva
+    sAPI_GpioSetValue(PIN_LED_ROSU, intrareActiva ? 1 : 0);
 }

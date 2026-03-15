@@ -13,10 +13,11 @@
 #define ERGO_PINS_H
 
 // ----------------------------------------------------------------------------
-// LED-URI (2 bucati)
+// LED-URI (3 bucati)
 // ----------------------------------------------------------------------------
 #define PIN_LED_VERDE       SC_MODULE_GPIO_01    // Verde  - firmware OK
 #define PIN_LED_GALBEN      SC_MODULE_GPIO_02    // Galben - conectat 4G
+#define PIN_LED_ROSU        SC_MODULE_GPIO_03    // Rosu   - tensiune pe intrare
 
 // ----------------------------------------------------------------------------
 // INTRARE MONITORIZATA (de la optocuplor - detectare 230V AC)

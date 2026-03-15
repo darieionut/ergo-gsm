@@ -43,6 +43,9 @@ static unsigned long timpStartImpuls = 0;
 static int inCooldown = 0;
 static unsigned long timpStartCooldown = 0;
 
+// Stare intrare in timp real (citita de led.c pentru LED rosu)
+int intrareActiva = 0;
+
 // ============================================================================
 // INITIALIZARE PIN INTRARE
 // ============================================================================
@@ -65,6 +68,9 @@ void monitorizareIntrare(void)
     unsigned long acum = getTickMs();
 
     sAPI_GpioGetValue(PIN_INTRARE, &stareCurenta);
+
+    // Actualizeaza starea intrarii pentru LED rosu
+    intrareActiva = stareCurenta;
 
     if (stareCurenta == 1 && !impulsInCurs)
     {
