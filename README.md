@@ -2,7 +2,7 @@
 
 **Versiune firmware:** v4.2
 **Dezvoltat de:** Plato Global SRL (Romania)
-**Partener:** Energoinstal Premium SRL (firma autorizata ANRE pentru instalatii gaz)
+**Partener:** Navoi Concept pentru Energoinstal Premium SRL (firma autorizata ANRE pentru instalatii gaz)
 
 ## Descriere
 
@@ -23,7 +23,6 @@ Modul pasiv de monitorizare alimentat la 230V AC, montat in casa scarii blocului
 | **Alimentare**| 230V AC prin sursa in comutatie izolata galvanic (SELV) |
 | **Intrare**   | 230V AC prin optocuplor (izolat galvanic)             |
 | **LED-uri**   | 3 (verde + galben + rosu)                             |
-| **Releu**     | Fara releu                                            |
 | **Antena**    | Externa, conector SMA                                 |
 
 ### Conectori
@@ -171,15 +170,14 @@ Configuratia se salveaza in filesystem-ul intern A7670E la `/simcom/ergo_config.
 ## Certificare (in curs)
 
 Produsul este in faza prototip/pre-test. Directive UE vizate:
-- RED 2014/53/EU (echipamente radio)
+- RED 2014/53/EU (echipamente radio) - modulul GSM SIMCom A7670E este deja certificat
 - LVD 2014/35/EU (siguranta electrica)
 - EMC 2014/30/EU (compatibilitate electromagnetica)
 - RoHS 2011/65/EU
-- Potential ATEX (atmosfere explozive)
 
 Laborator de testare: ICPE-CA (Romania).
 
 ## Autori
 
 **Plato Global SRL** - Romania
-In parteneriat cu **Energoinstal Premium SRL** (firma autorizata ANRE pentru instalatii gaz)
+In parteneriat cu **Navoi Concept** pentru **Energoinstal Premium SRL** (firma autorizata ANRE pentru instalatii gaz)
