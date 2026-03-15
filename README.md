@@ -52,7 +52,7 @@ ergo-gsm/
 │   ├── config.c        # Configuratie: incarcare/salvare/fabrica + utilitare
 │   ├── sms.c           # SMS: trimitere, comenzi, configurare
 │   ├── input.c         # Intrare: detectare impuls 230V + cooldown
-│   ├── led.c           # LED-uri: verde + galben
+│   ├── led.c           # LED-uri: verde + galben + rosu
 │   └── network.c       # Retea: conectare/reconectare Orange Romania
 ├── include/
 │   ├── ergo_pins.h     # Definire pini GPIO
@@ -94,7 +94,7 @@ make
 ## Logica detectare impuls
 
 - **Durata minima impuls valid:** 0.8 secunde (800ms) continuu
-- **Cooldown dupa SMS:** 20 secunde (maxim 1 SMS la 20s)
+- **Cooldown dupa SMS:** 20 secunde default (configurabil prin SMS `#cd*<s>#`, interval 10-3600s)
 - **Scanare intrare:** la 10ms
 
 ```
@@ -130,13 +130,13 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 ### Reset complet
 
 ```
-#msm*#, #01*#, #02*#, #03*#, #04*#, #05*#
+#msm*#, #01*#, #02*#, #03*#, #04*#, #05*#, #cd*#
 ```
 
 ### Format raspuns configuratie
 
 ```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT TEST,cd:20
 ```
 
 ## Configuratie din fabrica
