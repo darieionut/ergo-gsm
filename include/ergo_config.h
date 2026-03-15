@@ -12,7 +12,11 @@
 
 // Detectare impuls
 #define DURATA_IMPULS_MS        800     // 0.8s - impuls minim valid
-#define COOLDOWN_MS             20000   // 20s  - blocare dupa SMS
+
+// Cooldown configurabil prin SMS
+#define FABRICA_COOLDOWN_S      20      // 20s  - valoare implicita din fabrica
+#define MIN_COOLDOWN_S          10      // 10s  - minim acceptat
+#define MAX_COOLDOWN_S          3600    // 3600s - maxim acceptat (1 ora)
 
 // Retea
 #define TIMEOUT_RETEA_MS        30000   // 30s  - timeout conectare
@@ -68,7 +72,8 @@
 typedef struct {
     char mesajAlerta[MAX_LUNGIME_MESAJ + 1];
     char numere[MAX_NUMERE][MAX_LUNGIME_NUMAR + 1];
-    unsigned char flagValid;    // 0xA5 = configuratie valida
+    unsigned int cooldownSecunde;   // cooldown configurabil (MIN_COOLDOWN_S - MAX_COOLDOWN_S)
+    unsigned char flagValid;        // 0xA5 = configuratie valida
 } ConfigData;
 
 // ============================================================================

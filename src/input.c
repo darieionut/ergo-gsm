@@ -98,14 +98,15 @@ void monitorizareIntrare(void)
                 // Trimitere SMS la toate numerele
                 trimiteSMSAlarma();
 
-                // Cooldown 20 secunde
+                // Cooldown configurabil
                 inCooldown = 1;
                 timpStartCooldown = acum;
-                sAPI_Debug("[COOLDOWN] Blocare 20s.");
+                sAPI_Debug("[COOLDOWN] Blocare %ds.", config.cooldownSecunde);
             }
             else
             {
-                unsigned long ramas = COOLDOWN_MS - (acum - timpStartCooldown);
+                unsigned long cooldownMs = (unsigned long)config.cooldownSecunde * 1000;
+                unsigned long ramas = cooldownMs - (acum - timpStartCooldown);
                 sAPI_Debug("[COOLDOWN] IGNORAT. Ramas: %lu s", ramas / 1000);
             }
         }
@@ -129,7 +130,8 @@ void gestionareCooldown(void)
 {
     if (inCooldown)
     {
-        if (getTickMs() - timpStartCooldown >= COOLDOWN_MS)
+        unsigned long cooldownMs = (unsigned long)config.cooldownSecunde * 1000;
+        if (getTickMs() - timpStartCooldown >= cooldownMs)
         {
             inCooldown = 0;
             sAPI_Debug("[COOLDOWN] Expirat.");
