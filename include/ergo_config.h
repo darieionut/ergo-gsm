@@ -57,6 +57,10 @@
 // ============================================================================
 #define FABRICA_NUMAR_01        "0762862213"
 #define FABRICA_NUMAR_05        "1745"
+#define FABRICA_MESAJ_ALERTA    "ALARMA GAZ OPRIT TEST"
+
+// Retea Orange Romania
+#define ORANGE_SMSC             "+40744000060"
 
 // ============================================================================
 // STRUCTURA CONFIGURATIE (salvata in fisier)
