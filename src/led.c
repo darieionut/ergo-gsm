@@ -90,6 +90,9 @@ void ledBootEnd(void)
 
 // ============================================================================
 // ACTIVEAZA MOD IMPULS: ambele aprinse fix 3 secunde
+// Fix #2: timpStartModImpuls se seteaza la TERMINAREA trimiterii SMS (apelantul
+// apeleaza aceasta functie DUPA trimiteSMSAlarma), astfel incat cele 3 secunde
+// de LED sunt calculate de la sfarsitul trimiterii, nu de la inceputul ei.
 // ============================================================================
 
 void activeazaModImpulsLED(void)
@@ -125,7 +128,10 @@ void actualizeazaLeduri(void)
     {
         if (acum - timpStartModImpuls >= LED_IMPULS_DURATA_MS)
         {
-            // Revenire la clipire normala
+            // Revenire la clipire normala.
+            // Fix #13: nu mai facem return - continuam mai jos pentru a aplica
+            // imediat starea normala (inclusiv stingerea LED-ului rosu daca
+            // intrarea e inactiva), fara a astepta 50ms pana la urmatoarea iteratie.
             ledModImpuls = 0;
             timpStartLedVerde = acum;
             timpStartLedGalben = acum;
@@ -137,8 +143,8 @@ void actualizeazaLeduri(void)
             sAPI_GpioSetValue(PIN_LED_VERDE, 1);
             sAPI_GpioSetValue(PIN_LED_GALBEN, 1);
             sAPI_GpioSetValue(PIN_LED_ROSU, 1);
+            return;
         }
-        return;
     }
 
     // -----------------------------------------------------------

@@ -108,6 +108,10 @@ void reconectareRetea(void)
 {
     sAPI_Debug("[RETEA] Reconectare (o tentativa)...");
 
+    // Fix #16: alimenteaza WDT inainte de sAPI_NetworkGetCgreg() care
+    // poate bloca cateva secunde.
+    sAPI_WdtFeed();
+
     // O singura tentativa - loop-ul principal reapeleaza la fiecare 60s.
     // Evita blocarea loop-ului principal cu retry + delayMs.
     if (verificaConectareRetea())

@@ -76,14 +76,27 @@ void incarcaConfig(void)
 
     if (bytesRead != sizeof(ConfigData) || config.flagValid != 0xA5)
     {
-        sAPI_Debug("[CONFIG] Corupt -> fabrica.");
+        sAPI_Debug("[CONFIG] Corupt (citit %d/%d bytes, flag=0x%02X) -> fabrica.",
+                   bytesRead, (int)sizeof(ConfigData), (unsigned char)config.flagValid);
         initConfigFabrica();
         return;
     }
 
-    // Sanitizare cooldown (fisier vechi poate avea 0)
+    // Fix #11: garanteaza null-terminator la sfarsitul string-urilor,
+    // in caz de scriere partiala sau coruptie partiala a fisierului.
+    config.mesajAlerta[MAX_LUNGIME_MESAJ] = '\0';
+    {
+        int i;
+        for (i = 0; i < MAX_NUMERE; i++)
+            config.numere[i][MAX_LUNGIME_NUMAR] = '\0';
+    }
+
+    // Sanitizare cooldown (fisier vechi poate avea 0 sau valoare invalida)
     if (config.cooldownSecunde < MIN_COOLDOWN_S || config.cooldownSecunde > MAX_COOLDOWN_S)
+    {
+        sAPI_Debug("[CONFIG] Cooldown invalid (%u) -> reset fabrica.", config.cooldownSecunde);
         config.cooldownSecunde = FABRICA_COOLDOWN_S;
+    }
 
     // Afisare configuratie incarcata
     sAPI_Debug("[CONFIG] OK. Mesaj: %s",
@@ -106,18 +119,29 @@ void incarcaConfig(void)
 void salveazaConfig(void)
 {
     int fd;
+    int bytesWritten;
     config.flagValid = 0xA5;
 
     fd = sAPI_fopen(CONFIG_FILE_PATH, "wb");
     if (fd < 0)
     {
-        sAPI_Debug("[CONFIG] EROARE scriere!");
+        sAPI_Debug("[CONFIG] EROARE deschidere fisier scriere!");
         return;
     }
 
-    sAPI_fwrite(fd, (unsigned char*)&config, sizeof(ConfigData));
+    // Fix #10: verifica ca s-au scris exact toti bytes.
+    // Daca sAPI_fwrite esueaza sau scrie partial, fisierul e corupt.
+    bytesWritten = sAPI_fwrite(fd, (unsigned char*)&config, sizeof(ConfigData));
     sAPI_fclose(fd);
-    sAPI_Debug("[CONFIG] Salvat OK.");
+
+    if (bytesWritten != (int)sizeof(ConfigData))
+    {
+        sAPI_Debug("[CONFIG] EROARE scriere! (%d/%d bytes). Config pierduta!",
+                   bytesWritten, (int)sizeof(ConfigData));
+        return;
+    }
+
+    sAPI_Debug("[CONFIG] Salvat OK (%d bytes).", bytesWritten);
 }
 
 // ============================================================================
@@ -173,9 +197,14 @@ unsigned long getTickMs(void)
 }
 
 // Delay in milisecunde
+// Fix #12: valori < 5ms (< 1 tick) se rotunjesc in sus la 1 tick (5ms)
+// pentru a nu apela sAPI_TaskSleep(0) cu comportament nedefinit.
 void delayMs(unsigned long ms)
 {
-    sAPI_TaskSleep(ms / 5);
+    unsigned long ticks = ms / 5;
+    if (ticks == 0 && ms > 0)
+        ticks = 1;
+    sAPI_TaskSleep(ticks);
 }
 
 // ============================================================================
