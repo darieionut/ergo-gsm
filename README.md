@@ -119,7 +119,7 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 | `#01*#` ... `#05*#` | Stergere numere destinatari |
 | `#cd*<secunde>#` | Setare cooldown (10-3600 secunde, ex: `#cd*300#` = 5 minute) |
 | `#cd*#` | Reset cooldown la valoarea din fabrica (20 secunde) |
-| `#config#` | Afisare configuratie curenta (include si cooldown-ul) |
+| `#config#` | Afisare configuratie curenta (include cooldown si intensitate semnal GSM) |
 
 ### Comenzi multiple (intr-un singur SMS)
 
@@ -136,7 +136,7 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 ### Format raspuns configuratie
 
 ```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT TEST,cd:20
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT TEST,cd:20s,semnal:80%
 ```
 
 ## Configuratie din fabrica

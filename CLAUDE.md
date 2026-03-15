@@ -76,7 +76,7 @@ docs/
 
 ## Comportament LED-uri (CRITIC - respecta exact)
 
-Modulul are **doar 2 LED-uri**: verde si galben.
+Modulul are **3 LED-uri**: verde, galben si rosu.
 
 | Stare | LED Verde | LED Galben | LED Rosu |
 |-------|-----------|------------|----------|
@@ -141,11 +141,11 @@ Separate prin virgula intr-un singur SMS. Exemplu:
 `#msm*Atentie gaz oprit#, #01*0712345678#, #02*0798765432#`
 
 ### Reset complet:
-`#msm*#, #01*#, #02*#, #03*#, #04*#, #05*#`
+`#msm*#, #01*#, #02*#, #03*#, #04*#, #05*#, #cd*#`
 
 ### Format raspuns configuratie:
 ```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s,semnal:80%
 ```
 
 ## Configuratie din fabrica
@@ -193,18 +193,21 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 ## Note pentru dezvoltare
 
 - Tick rate SDK: 5ms/tick (folosit in `config.c`: `sAPI_GetTicks() * 5`) - confirmat in cod, dar verificati si in `sdk_config.h`
-- Functii SDK: `sAPI_GetTicks()`, `sAPI_TaskSleep()`, `sAPI_GpioSetValue()`, `sAPI_GpioGetValue()`, `sAPI_SmsSendMsg()`, `sAPI_SmsReadMsg()`, `sAPI_SmsDeleteMsg()`, `sAPI_NetworkGetCgreg()`, `sAPI_fopen()`, `sAPI_fread()`, `sAPI_fwrite()`, `sAPI_fclose()`
+- Functii SDK: `sAPI_GetTicks()`, `sAPI_TaskSleep()`, `sAPI_GpioSetValue()`, `sAPI_GpioGetValue()`, `sAPI_SmsSendMsg()`, `sAPI_SmsReadMsg()`, `sAPI_SmsDeleteMsg()`, `sAPI_NetworkGetCgreg()`, `sAPI_NetworkGetCsq()`, `sAPI_WdtStart()`, `sAPI_WdtFeed()`, `sAPI_fopen()`, `sAPI_fread()`, `sAPI_fwrite()`, `sAPI_fclose()`
 - SMS text mode (nu PDU), charset GSM, SMSC setat prin `sAPI_SmsCfgScaAddr(ORANGE_SMSC)` in `initRetea()`
 - Variabila `reteaConectata` este globala, definita in `network.c`, folosita in `led.c`
 - Variabila `intrareActiva` este globala, definita in `input.c`, folosita in `led.c` (pentru LED rosu)
 - Structura `ConfigData` cu flag `0xA5` pentru validare; camp `cooldownSecunde` pentru cooldown configurabil
 - `strcasecmp`/`strncasecmp` POSIX **nu exista** in SDK SIMCom - folositi inlocuitorii proprii `ergo_strcasecmp()` si `ergo_strncasecmp()` definiti in `config.c` si declarati in `ergo_config.h`
 - Main loop: `sAPI_TaskSleep(2)` la final = 2 ticks * 5ms = ~10ms yield CPU
-- `verificaSMSPrimit()` citeste intotdeauna din slot 1 (cel mai recent SMS); buffer continut 512 bytes
+- `verificaSMSPrimit()` itereaza sloturile 1-20 pana gaseste primul SMS disponibil; buffer continut 512 bytes; proceseaza un singur SMS per apel pentru a nu bloca loop-ul
 - `trimiteSMSAlarma()`: pauza 1 secunda intre SMS-uri consecutive (`delayMs(1000)`)
 - `initRetea()`: 15 tentative cu delay 2s intre ele (max ~30s timeout initial)
 - `reconectareRetea()`: 1 singura tentativa (apelata din loop la fiecare 60s daca retea pierduta; fara delay intern)
-- Buffer raspuns config `trimiteConfigCurenta()`: 450 bytes (suficient pentru 5 numere + mesaj 300 chars)
+- `verificaConectareRetea()`: apelata si din `initRetea()` si din loop-ul principal (la 60s); actualizeaza `reteaConectata`; returneaza 1=conectat, 0=neconectat
+- `obtiSemnalCSQ()`: returneaza CSQ 0-31 (31=maxim) sau -1 la eroare; valoarea 99 inseamna "necunoscut" conform GSM; folosita in `trimiteConfigCurenta()`
+- Watchdog hardware: `sAPI_WdtStart(60)` pornit inainte de `initRetea()`; alimentat cu `sAPI_WdtFeed()` in loop si in `trimiteSMSAlarma()`; reseteaza modulul daca loop-ul se blocheaza > 60s
+- Buffer raspuns config `trimiteConfigCurenta()`: 450 bytes (suficient pentru 5 numere + mesaj 300 chars + cd + semnal)
 
 ## Certificare (in curs)
 
