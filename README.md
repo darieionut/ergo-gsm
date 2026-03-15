@@ -22,7 +22,7 @@ Modul pasiv de monitorizare alimentat la 230V AC, montat in casa scarii blocului
 | **SIM**       | micro-SIM                                             |
 | **Alimentare**| 230V AC prin sursa in comutatie izolata galvanic (SELV) |
 | **Intrare**   | 230V AC prin optocuplor (izolat galvanic)             |
-| **LED-uri**   | 2 (verde + galben)                                    |
+| **LED-uri**   | 3 (verde + galben + rosu)                             |
 | **Releu**     | Fara releu                                            |
 | **Antena**    | Externa, conector SMA                                 |
 
@@ -79,16 +79,17 @@ make
 
 ## Comportament LED-uri
 
-| Stare | LED Verde | LED Galben |
-|-------|-----------|------------|
-| Boot (initializare software) | APRINS FIX | STINS |
-| Software OK, cauta retea 4G | Clipeste 0.5s/0.5s | STINS |
-| Software OK, conectat la retea 4G | Clipeste 0.5s/0.5s | Clipeste 0.5s/0.5s |
-| Impuls valid detectat (3 secunde) | APRINS FIX | APRINS FIX |
-| Dupa 3 secunde | Revine la clipire | Revine (sau stins daca nu e retea) |
-| Nealimentat | Stins | Stins |
+| Stare | LED Verde | LED Galben | LED Rosu |
+|-------|-----------|------------|----------|
+| Boot (initializare software) | APRINS FIX | STINS | STINS |
+| Software OK, cauta retea 4G | Clipeste 0.5s/0.5s | STINS | STINS |
+| Software OK, conectat la retea 4G | Clipeste 0.5s/0.5s | Clipeste 0.5s/0.5s | STINS |
+| Tensiune pe intrare (< 0.8s, zgomot) | Clipeste 0.5s/0.5s | Clipeste/Stins | APRINS FIX |
+| Impuls valid detectat (3 secunde) | APRINS FIX | APRINS FIX | APRINS FIX |
+| Dupa 3 secunde, intrare inactiva | Revine la clipire | Revine (sau stins) | STINS |
+| Nealimentat | Stins | Stins | Stins |
 
-**Reguli:** LED verde clipeste = software ruleaza OK. LED galben clipeste = conectat 4G. La impuls valid, ambele aprinse fix 3 secunde, apoi revin la normal.
+**Reguli:** LED verde clipeste = software ruleaza OK. LED galben clipeste = conectat 4G. LED rosu = tensiune fizica prezenta pe intrare (timp real). La impuls valid, toate 3 aprinse fix 3 secunde.
 
 ## Logica detectare impuls
 
@@ -116,7 +117,9 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 | `#msm*#` | Stergere mesaj alerta |
 | `#01*<numar>#` ... `#05*<numar>#` | Setare numere destinatari 1-5 |
 | `#01*#` ... `#05*#` | Stergere numere destinatari |
-| `#config#` | Afisare configuratie curenta |
+| `#cd*<secunde>#` | Setare cooldown (10-3600 secunde, ex: `#cd*300#` = 5 minute) |
+| `#cd*#` | Reset cooldown la valoarea din fabrica (20 secunde) |
+| `#config#` | Afisare configuratie curenta (include si cooldown-ul) |
 
 ### Comenzi multiple (intr-un singur SMS)
 
@@ -145,7 +148,8 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 | Nr03 | (gol) |
 | Nr04 | (gol) |
 | Nr05 | `1745` (numar scurt, presetat) |
-| Mesaj | **(gol)** - TREBUIE configurat prin SMS inainte de prima utilizare |
+| Mesaj | `ALARMA GAZ OPRIT TEST` (default din fabrica, configurabil prin SMS) |
+| Cooldown | `20` secunde (default, configurabil prin SMS `#cd*<s>#`, interval 10-3600s) |
 
 Configuratia se salveaza in filesystem-ul intern A7670E la `/simcom/ergo_config.dat`. La prima pornire sau fisier corupt, se reinitializeaza cu valorile din fabrica.
 

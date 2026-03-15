@@ -5,15 +5,16 @@
 //
 // COMPORTAMENT LED-URI:
 //
-//  +--------------------------------+------------------+------------------+
-//  | STARE                          | LED VERDE        | LED GALBEN       |
-//  +--------------------------------+------------------+------------------+
-//  | Boot (initializare soft)       | APRINS FIX       | STINS            |
-//  | Soft OK, cauta retea           | Clipeste 0.5s    | STINS            |
-//  | Soft OK, conectat 4G           | Clipeste 0.5s    | Clipeste 0.5s   |
-//  | Impuls detectat (3 secunde)    | APRINS FIX       | APRINS FIX       |
-//  | Dupa 3s                        | Revine clipire   | Revine clipire   |
-//  +--------------------------------+------------------+------------------+
+//  +--------------------------------+------------------+------------------+------------------+
+//  | STARE                          | LED VERDE        | LED GALBEN       | LED ROSU         |
+//  +--------------------------------+------------------+------------------+------------------+
+//  | Boot (initializare soft)       | APRINS FIX       | STINS            | STINS            |
+//  | Soft OK, cauta retea           | Clipeste 0.5s    | STINS            | STINS            |
+//  | Soft OK, conectat 4G           | Clipeste 0.5s    | Clipeste 0.5s    | STINS            |
+//  | Tensiune pe intrare (< 0.8s)   | Clipeste 0.5s    | Clipeste/Stins   | APRINS FIX       |
+//  | Impuls detectat (3 secunde)    | APRINS FIX       | APRINS FIX       | APRINS FIX       |
+//  | Dupa 3s, intrare inactiva      | Revine clipire   | Revine clipire   | STINS            |
+//  +--------------------------------+------------------+------------------+------------------+
 //
 // ============================================================================
 
@@ -38,5 +39,9 @@ void activeazaModImpulsLED(void);
 // Variabila: retea conectata (folosita de LED galben)
 // Setata din network.c, citita din led.c
 extern int reteaConectata;
+
+// Variabila: tensiune prezenta pe intrare (folosita de LED rosu)
+// Setata din input.c, citita din led.c
+extern int intrareActiva;
 
 #endif // ERGO_LED_H

@@ -7,11 +7,13 @@
 //   #msm*<text>#              - Setare mesaj alerta
 //   #msm*#                    - Stergere mesaj alerta
 //   #01*<numar># ... #05*#    - Setare/stergere numere (max 5)
+//   #cd*<secunde>#            - Setare cooldown (10-3600s)
+//   #cd*#                     - Reset cooldown la 20s (fabrica)
 //   #config#                  - Afisare configuratie curenta
 //   Comenzi multiple: separate prin virgula intr-un singur SMS
 //
 // FORMAT RASPUNS CONFIG:
-//   01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.
+//   01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s
 //
 // TIPURI NUMERE:
 //   - Standard Romania: 07XXXXXXXX (10 cifre)
@@ -283,6 +285,52 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
         }
     }
 
+    // -----------------------------------------------------------
+    // #cd*<secunde># - setare cooldown
+    // #cd*#          - reset la valoarea din fabrica (20s)
+    // -----------------------------------------------------------
+    if (ergo_strncasecmp(comanda, "#cd*", 4) == 0)
+    {
+        if (lungime < 5 || comanda[lungime - 1] != '#')
+            return;
+
+        if (lungime == 5)
+        {
+            // #cd*# = reset la fabrica
+            config.cooldownSecunde = FABRICA_COOLDOWN_S;
+            sAPI_Debug("[CMD] Cooldown RESET: %ds.", config.cooldownSecunde);
+        }
+        else
+        {
+            // #cd*<secunde># = setare valoare
+            int lungimeVal = lungime - 5;
+            int val = 0;
+            int k;
+
+            if (lungimeVal > 4) lungimeVal = 4;  // max 4 cifre (9999)
+
+            for (k = 0; k < lungimeVal; k++)
+            {
+                char c = comanda[4 + k];
+                if (c < '0' || c > '9')
+                {
+                    sAPI_Debug("[CMD] Cooldown invalid: caractere non-numerice.");
+                    return;
+                }
+                val = val * 10 + (c - '0');
+            }
+
+            if (val < MIN_COOLDOWN_S) val = MIN_COOLDOWN_S;
+            if (val > MAX_COOLDOWN_S) val = MAX_COOLDOWN_S;
+
+            config.cooldownSecunde = (unsigned int)val;
+            sAPI_Debug("[CMD] Cooldown: %ds.", config.cooldownSecunde);
+        }
+
+        salveazaConfig();
+        return;
+    }
+
     sAPI_Debug("[CMD] Necunoscuta: %s", comanda);
 }
 
@@ -309,6 +357,8 @@ void trimiteConfigCurenta(const char* numar)
 
     pos += snprintf(buf + pos, sizeof(buf) - pos, ",msm:%s",
                     strlen(config.mesajAlerta) > 0 ? config.mesajAlerta : "(gol)");
+
+    pos += snprintf(buf + pos, sizeof(buf) - pos, ",cd:%us", config.cooldownSecunde);
 
     sAPI_Debug("[CONFIG] %s", buf);
     trimiteSMS(numar, buf);

@@ -38,11 +38,14 @@ void initConfigFabrica(void)
     // Mesaj default din fabrica (se poate modifica prin SMS #msm*<text>#)
     strncpy(config.mesajAlerta, FABRICA_MESAJ_ALERTA, MAX_LUNGIME_MESAJ);
 
+    config.cooldownSecunde = FABRICA_COOLDOWN_S;
+
     config.flagValid = 0xA5;
 
     sAPI_Debug("[CONFIG] FABRICA Nr01: %s", FABRICA_NUMAR_01);
     sAPI_Debug("[CONFIG] FABRICA Nr05: %s (scurt)", FABRICA_NUMAR_05);
     sAPI_Debug("[CONFIG] FABRICA Mesaj: %s", FABRICA_MESAJ_ALERTA);
+    sAPI_Debug("[CONFIG] FABRICA Cooldown: %ds", FABRICA_COOLDOWN_S);
 
     salveazaConfig();
 }
@@ -78,9 +81,15 @@ void incarcaConfig(void)
         return;
     }
 
+    // Sanitizare cooldown (fisier vechi poate avea 0)
+    if (config.cooldownSecunde < MIN_COOLDOWN_S || config.cooldownSecunde > MAX_COOLDOWN_S)
+        config.cooldownSecunde = FABRICA_COOLDOWN_S;
+
     // Afisare configuratie incarcata
     sAPI_Debug("[CONFIG] OK. Mesaj: %s",
               strlen(config.mesajAlerta) > 0 ? config.mesajAlerta : "(gol)");
+
+    sAPI_Debug("[CONFIG] Cooldown: %ds", config.cooldownSecunde);
 
     for (i = 0; i < MAX_NUMERE; i++)
     {
