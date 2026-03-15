@@ -145,6 +145,8 @@ Separate prin virgula intr-un singur SMS. Exemplu:
 
 ## Configuratie din fabrica
 
+Constante definite in `ergo_config.h`: `FABRICA_NUMAR_01`, `FABRICA_NUMAR_05`, `FABRICA_MESAJ_ALERTA`, `ORANGE_SMSC`.
+
 | Parametru | Valoare |
 |-----------|---------|
 | Nr01 | **0762862213** (presetat) |
@@ -152,7 +154,7 @@ Separate prin virgula intr-un singur SMS. Exemplu:
 | Nr03 | (gol) |
 | Nr04 | (gol) |
 | Nr05 | **1745** (numar scurt, presetat) |
-| Mesaj | **(gol)** - TREBUIE configurat prin SMS inainte de prima utilizare |
+| Mesaj | **ALARMA GAZ OPRIT TEST** (default din fabrica, definit ca `FABRICA_MESAJ_ALERTA`) |
 
 Configuratia se salveaza in filesystem-ul intern A7670E la calea `/simcom/ergo_config.dat`. La prima pornire sau daca fisierul e corupt, se reinitializeaza cu valorile din fabrica.
 
@@ -185,7 +187,7 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 
 - Tick rate SDK: 5ms/tick (folosit in `config.c`: `sAPI_GetTicks() * 5`) - confirmat in cod, dar verificati si in `sdk_config.h`
 - Functii SDK: `sAPI_GetTicks()`, `sAPI_TaskSleep()`, `sAPI_GpioSetValue()`, `sAPI_GpioGetValue()`, `sAPI_SmsSendMsg()`, `sAPI_SmsReadMsg()`, `sAPI_SmsDeleteMsg()`, `sAPI_NetworkGetCgreg()`, `sAPI_fopen()`, `sAPI_fread()`, `sAPI_fwrite()`, `sAPI_fclose()`
-- SMS text mode (nu PDU), charset GSM
+- SMS text mode (nu PDU), charset GSM, SMSC setat prin `sAPI_SmsCfgScaAddr(ORANGE_SMSC)` in `initRetea()`
 - Variabila `reteaConectata` este globala, definita in `network.c`, folosita in `led.c`
 - Structura `ConfigData` cu flag `0xA5` pentru validare
 - `strcasecmp`/`strncasecmp` POSIX **nu exista** in SDK SIMCom - folositi inlocuitorii proprii `ergo_strcasecmp()` si `ergo_strncasecmp()` definiti in `config.c` si declarati in `ergo_config.h`
@@ -193,7 +195,7 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 - `verificaSMSPrimit()` citeste intotdeauna din slot 1 (cel mai recent SMS); buffer continut 512 bytes
 - `trimiteSMSAlarma()`: pauza 1 secunda intre SMS-uri consecutive (`delayMs(1000)`)
 - `initRetea()`: 15 tentative cu delay 2s intre ele (max ~30s timeout initial)
-- `reconectareRetea()`: 10 tentative cu delay 3s intre ele (apelata din loop la fiecare 60s daca retea pierduta)
+- `reconectareRetea()`: 1 singura tentativa (apelata din loop la fiecare 60s daca retea pierduta; fara delay intern)
 - Buffer raspuns config `trimiteConfigCurenta()`: 450 bytes (suficient pentru 5 numere + mesaj 300 chars)
 
 ## Certificare (in curs)

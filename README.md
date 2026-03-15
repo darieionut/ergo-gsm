@@ -145,7 +145,7 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 | Nr03 | (gol) |
 | Nr04 | (gol) |
 | Nr05 | `1745` (numar scurt, presetat) |
-| Mesaj | **(gol)** - TREBUIE configurat prin SMS inainte de prima utilizare |
+| Mesaj | `ALARMA GAZ OPRIT TEST` (default din fabrica, configurabil prin SMS) |
 
 Configuratia se salveaza in filesystem-ul intern A7670E la `/simcom/ergo_config.dat`. La prima pornire sau fisier corupt, se reinitializeaza cu valorile din fabrica.
 
