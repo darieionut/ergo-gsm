@@ -4,7 +4,7 @@
 
 ## Despre proiect
 
-Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E** (procesor Unisoc 8910DM, ARM Cortex-A5). Produsul se numeste **ERGO GASALERT** si este dezvoltat de **Plato Global SRL** (Romania) in parteneriat cu **Energoinstal Premium SRL** (firma autorizata ANRE pentru instalatii gaz).
+Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E** (procesor Unisoc 8910DM, ARM Cortex-A5). Produsul se numeste **ERGO GASALERT** si este dezvoltat de **Plato Global SRL** (Romania) in parteneriat cu **Navoi Concept** pentru **Energoinstal Premium SRL** (firma autorizata ANRE pentru instalatii gaz).
 
 **Scop:** Modul pasiv de monitorizare montat in casa scarii care detecteaza prezenta tensiunii 230V AC pe o intrare si trimite SMS de alarma la maxim 5 numere de telefon. Se instaleaza in paralel cu electrovalva de gaz din cladirile rezidentiale - cand sistemul de detectie gaz opreste gazul (electrovalva primeste 230V), modulul nostru detecteaza acea tensiune si notifica locatarii prin SMS.
 
@@ -19,7 +19,6 @@ Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E**
 - **Alimentare:** 230V AC prin sursa in comutatie izolata galvanic (SELV)
 - **Intrare:** 230V AC prin optocuplor (izolat galvanic)
 - **LED-uri:** 3 (verde + galben + rosu) - pe viitoarea versiune de PCB
-- **Fara releu** - eliminat din design
 - **Antena:** externa, conector SMA
 
 ### Conectori pe placa
@@ -38,7 +37,7 @@ Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E**
 
 ## Limbaj si platforma
 
-- **Limbaj:** C (nu C++, nu Arduino)
+- **Limbaj:** C
 - **Platforma:** SIMCom OpenCPU SDK pentru A7670E
 - **Compilare:** ARM GCC Toolchain
 - **Programare:** UART prin conectorul J4
@@ -212,11 +211,10 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 ## Certificare (in curs)
 
 Produsul este in faza prototip/pre-test. Directive UE vizate:
-- RED 2014/53/EU (echipamente radio)
+- RED 2014/53/EU (echipamente radio) - modulul GSM SIMCom A7670E este deja certificat
 - LVD 2014/35/EU (siguranta electrica)
 - EMC 2014/30/EU (compatibilitate electromagnetica)
 - RoHS 2011/65/EU
-- Potential ATEX (atmosfere explozive)
 
 Laboratorul de testare: ICPE-CA (Romania).
 
