@@ -32,11 +32,23 @@
 | Setare numar 5 | `#05*<numar>#` | `#05*1745#` |
 | Stergere numar 5 | `#05*#` | `#05*#` |
 
-### Verificare configuratie
+### Cooldown intre alarme
+
+| Actiune | Comanda | Exemplu |
+|---------|---------|---------|
+| Setare cooldown | `#cd*<secunde>#` | `#cd*300#` (5 minute) |
+| Reset cooldown la fabrica (20s) | `#cd*#` | `#cd*#` |
+
+### Verificare si control alarme
 
 | Actiune | Comanda |
 |---------|---------|
 | Afisare configuratie | `#config#` |
+| Reset contor alarme zilnice | `#rsms#` |
+
+> **`#rsms#`** - reseteaza contorul de alarme al ferestrei curente de 24h.
+> Folosit cand modulul a atins limita zilnica din cauza unor alarme legitime
+> (ex: testare repetata) si operatorul vrea sa reactiveze notificarile imediat.
 
 ## Comenzi multiple intr-un singur SMS
 
@@ -53,14 +65,16 @@ Comenzile se separa prin virgula:
 Dupa fiecare comanda, modulul raspunde cu un SMS in formatul:
 
 ```
-01:0762862213,02:0774469691,03:0762862765,04:0762862890,05:1745,msm:Alarma gaz oprit.
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s,alarme:3/20,semnal:80%
 ```
 
-Numerele goale apar ca `(gol)`:
-
-```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.
-```
+| Camp | Descriere |
+|------|-----------|
+| `01`..`05` | Numerele configurate (`(gol)` daca nesetat) |
+| `msm` | Mesajul de alerta curent |
+| `cd` | Cooldown intre alarme (secunde) |
+| `alarme` | Alarme trimise / limita in fereastra curenta de 24h |
+| `semnal` | Intensitate semnal GSM (%) |
 
 ## Tipuri numere suportate
 

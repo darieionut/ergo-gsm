@@ -30,6 +30,9 @@
 // Watchdog hardware
 #define WATCHDOG_TIMEOUT_S      60      // Reset automat daca loop-ul se blocheaza > 60s
 
+// Limita alarme (events SMS) per fereastra rulanta de 24h (protectie anti-spam la defectare)
+#define LIMITA_ALARME_ZI        20      // max 20 alarme in orice interval de 24h
+
 // ============================================================================
 // CONSTANTE LED-URI
 // ============================================================================
@@ -76,8 +79,10 @@
 typedef struct __attribute__((packed)) {
     char mesajAlerta[MAX_LUNGIME_MESAJ + 1];
     char numere[MAX_NUMERE][MAX_LUNGIME_NUMAR + 1];
-    unsigned int cooldownSecunde;   // cooldown configurabil (MIN_COOLDOWN_S - MAX_COOLDOWN_S)
-    unsigned char flagValid;        // 0xA5 = configuratie valida
+    unsigned int cooldownSecunde;           // cooldown configurabil (MIN_COOLDOWN_S - MAX_COOLDOWN_S)
+    unsigned int alarmeAziCount;            // nr alarme trimise in fereastra curenta de 24h
+    unsigned long alarmeFereastraStartMs;   // tick ms (getTickMs) cand a inceput fereastra
+    unsigned char flagValid;                // 0xA5 = configuratie valida
 } ConfigData;
 
 // ============================================================================

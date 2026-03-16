@@ -98,6 +98,27 @@ void incarcaConfig(void)
         config.cooldownSecunde = FABRICA_COOLDOWN_S;
     }
 
+    // Sanitizare contor alarme zilnice
+    if (config.alarmeAziCount > (unsigned int)(LIMITA_ALARME_ZI * 10))
+    {
+        sAPI_Debug("[CONFIG] alarmeAziCount invalid (%u) -> reset.", config.alarmeAziCount);
+        config.alarmeAziCount = 0;
+        config.alarmeFereastraStartMs = 0;
+    }
+
+    // Detectie reboot: daca fereastraStart > tickCurent, tick-urile au pornit de la 0
+    // dupa reset. Pastram contorul (protectia anti-spam persista) dar resetam startul
+    // ferestrei (noua fereastra de 24h incepe de acum).
+    {
+        unsigned long tickCurent = getTickMs();
+        if (config.alarmeFereastraStartMs > tickCurent)
+        {
+            sAPI_Debug("[CONFIG] Reboot detectat: fereastra alarme resetata (count pastrat: %u/%d).",
+                       config.alarmeAziCount, LIMITA_ALARME_ZI);
+            config.alarmeFereastraStartMs = tickCurent;
+        }
+    }
+
     // Afisare configuratie incarcata
     sAPI_Debug("[CONFIG] OK. Mesaj: %s",
               strlen(config.mesajAlerta) > 0 ? config.mesajAlerta : "(gol)");

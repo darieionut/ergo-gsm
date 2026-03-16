@@ -86,12 +86,39 @@ void trimiteSMSAlarma(void)
     int i;
     int trimise = 0;
     int erori = 0;
+    unsigned long acum;
+    unsigned long fereastra24hMs = 24UL * 3600UL * 1000UL;  // 86400000 ms
 
     if (strlen(config.mesajAlerta) == 0)
     {
         sAPI_Debug("[ALARMA] Mesaj NESETAT! SMS nu se trimite.");
         return;
     }
+
+    acum = getTickMs();
+
+    // Verifica daca fereastra de 24h a expirat -> reseteaza contorul
+    if (acum - config.alarmeFereastraStartMs >= fereastra24hMs)
+    {
+        sAPI_Debug("[ALARMA] Fereastra 24h expirata -> reset contor (era %u alarme).",
+                   config.alarmeAziCount);
+        config.alarmeAziCount = 0;
+        config.alarmeFereastraStartMs = acum;
+    }
+
+    // Verifica limita zilnica (protectie anti-spam la defectare hardware/software)
+    if (config.alarmeAziCount >= LIMITA_ALARME_ZI)
+    {
+        sAPI_Debug("[ALARMA] LIMITA ZILNICA ATINSA (%u/%d)! SMS blocat.",
+                   config.alarmeAziCount, LIMITA_ALARME_ZI);
+        return;
+    }
+
+    // Incrementeaza si salveaza INAINTE de trimitere:
+    // contorul persista in filesystem chiar daca modulul se reseteaza in timpul trimiterii.
+    config.alarmeAziCount++;
+    salveazaConfig();
+    sAPI_Debug("[ALARMA] Alarma %u/%d in fereastra 24h.", config.alarmeAziCount, LIMITA_ALARME_ZI);
 
     for (i = 0; i < MAX_NUMERE; i++)
     {
@@ -221,6 +248,20 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
     // -----------------------------------------------------------
     if (ergo_strcasecmp(comanda, "#config#") == 0)
         return;  // config se trimite oricum dupa procesare
+
+    // -----------------------------------------------------------
+    // #rsms# - reset manual contor alarme zilnice
+    // Util cand modulul a atins limita din cauza unor alarme legitime
+    // si operatorul vrea sa reactiveze notificarile imediat.
+    // -----------------------------------------------------------
+    if (ergo_strcasecmp(comanda, "#rsms#") == 0)
+    {
+        sAPI_Debug("[CMD] Reset contor alarme zilnice (%u -> 0).", config.alarmeAziCount);
+        config.alarmeAziCount = 0;
+        config.alarmeFereastraStartMs = getTickMs();
+        salveazaConfig();
+        return;
+    }
 
     // -----------------------------------------------------------
     // #msm*<text># - setare mesaj alerta
@@ -366,7 +407,7 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
 
 void trimiteConfigCurenta(const char* numar)
 {
-    char buf[450];
+    char buf[480];  // 450 anterior + ~13 bytes pentru ",alarme:XX/YY"
     int pos = 0;
     int i;
 
@@ -384,6 +425,9 @@ void trimiteConfigCurenta(const char* numar)
                     strlen(config.mesajAlerta) > 0 ? config.mesajAlerta : "(gol)");
 
     pos += snprintf(buf + pos, sizeof(buf) - pos, ",cd:%us", config.cooldownSecunde);
+
+    pos += snprintf(buf + pos, sizeof(buf) - pos, ",alarme:%u/%d",
+                    config.alarmeAziCount, LIMITA_ALARME_ZI);
 
     // Intensitate semnal GSM (CSQ 0-31 convertit in procent)
     {
