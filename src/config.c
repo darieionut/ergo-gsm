@@ -98,6 +98,28 @@ void incarcaConfig(void)
         config.cooldownSecunde = FABRICA_COOLDOWN_S;
     }
 
+    // Sanitizare contor alarme zilnice
+    if (config.alarmeAziCount > (unsigned int)(LIMITA_ALARME_BURST * 10))
+    {
+        sAPI_Debug("[CONFIG] alarmeAziCount invalid (%u) -> reset.", config.alarmeAziCount);
+        config.alarmeAziCount = 0;
+        config.ultimaAlarmaMs = 0;
+    }
+
+    // Detectie reboot: daca ultimaAlarmaMs > tickCurent, tick-urile au pornit de la 0
+    // dupa reset watchdog. Pastram contorul (protectia anti-spam persista) dar resetam
+    // ultimaAlarmaMs la tickCurent, astfel incat perioada de liniste se masoara
+    // de la momentul reboot-ului (conservativ - nu reseteaza contorul prematur).
+    {
+        unsigned long tickCurent = getTickMs();
+        if (config.ultimaAlarmaMs > tickCurent)
+        {
+            sAPI_Debug("[CONFIG] Reboot detectat: ultimaAlarma resetata (count pastrat: %u/%d).",
+                       config.alarmeAziCount, LIMITA_ALARME_BURST);
+            config.ultimaAlarmaMs = tickCurent;
+        }
+    }
+
     // Afisare configuratie incarcata
     sAPI_Debug("[CONFIG] OK. Mesaj: %s",
               strlen(config.mesajAlerta) > 0 ? config.mesajAlerta : "(gol)");

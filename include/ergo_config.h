@@ -30,6 +30,12 @@
 // Watchdog hardware
 #define WATCHDOG_TIMEOUT_S      60      // Reset automat daca loop-ul se blocheaza > 60s
 
+// Protectie anti-spam la defectare hardware/software:
+// - Max 20 alarme consecutive inainte de blocare
+// - Dupa 2h fara nicio alarma (liniste = problema rezolvata), contorul se reseteaza automat
+#define LIMITA_ALARME_BURST     20                  // max alarme inainte de blocare
+#define CALM_PERIOD_MS          (2UL*3600UL*1000UL) // 2h liniste = reset automat contor
+
 // ============================================================================
 // CONSTANTE LED-URI
 // ============================================================================
@@ -76,8 +82,10 @@
 typedef struct __attribute__((packed)) {
     char mesajAlerta[MAX_LUNGIME_MESAJ + 1];
     char numere[MAX_NUMERE][MAX_LUNGIME_NUMAR + 1];
-    unsigned int cooldownSecunde;   // cooldown configurabil (MIN_COOLDOWN_S - MAX_COOLDOWN_S)
-    unsigned char flagValid;        // 0xA5 = configuratie valida
+    unsigned int cooldownSecunde;           // cooldown configurabil (MIN_COOLDOWN_S - MAX_COOLDOWN_S)
+    unsigned int alarmeAziCount;            // nr alarme consecutive trimise (se reseteaza la liniste)
+    unsigned long ultimaAlarmaMs;           // tick ms (getTickMs) al ultimei alarme trimise
+    unsigned char flagValid;                // 0xA5 = configuratie valida
 } ConfigData;
 
 // ============================================================================
