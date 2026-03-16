@@ -122,6 +122,34 @@ Actiune:         SMS TRIMIS  NIMIC   NIMIC         SMS TRIMIS
                       |←── 20s cooldown ──→|           |←── 20s...
 ```
 
+## Protectie anti-spam (defectare hardware/software)
+
+Mecanism de protectie impotriva trimiterii necontrolate de SMS-uri in caz de defect (GPIO blocat HIGH, bug software etc.).
+
+### Parametri:
+- **`LIMITA_ALARME_BURST`** = 20 alarme consecutive maxim
+- **`CALM_PERIOD_MS`** = 2 ore (7200000ms) fara alarme = reset automat contor
+
+### Logica in `trimiteSMSAlarma()`:
+1. Daca `(acum - ultimaAlarmaMs) >= 2h` si `ultimaAlarmaMs > 0` → reset contor (liniste = problema rezolvata)
+2. Daca `alarmeAziCount >= 20` → BLOCAT, return
+3. `alarmeAziCount++`, `ultimaAlarmaMs = acum`, `salveazaConfig()` → INAINTE de trimitere
+4. Trimite SMS-urile
+
+### Persistenta la reboot (watchdog):
+In `incarcaConfig()`, dupa incarcare:
+- Daca `ultimaAlarmaMs > getTickMs()` → reboot detectat (tick-urile au pornit de la 0)
+- Actiune: `ultimaAlarmaMs = getTickMs()` (resetam referinta temporala) dar `alarmeAziCount` se pastreaza
+- Rezultat: modulul defect care rebooteaza continuu nu isi reseteaza contorul; deblocare doar dupa 2h fara alarme
+
+### Scenarii:
+| Scenariu | Comportament |
+|----------|--------------|
+| GPIO blocat HIGH (trigger continuu) | 20 alarme → blocat; fara 2h liniste → ramane blocat |
+| Alarme reale + reparatie | 20 alarme → 2h liniste → reset automat → alarma noua trimisa ✓ |
+| Reboot watchdog repetat | Contorul persista; 2h de uptime linistit necesare pentru deblocare |
+| Operator deblocheaza manual | `#rsms#` → `alarmeAziCount=0`, `ultimaAlarmaMs=0`, salvat |
+
 ## Configurare prin SMS
 
 Toate comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, modulul raspunde automat cu configuratia curenta.
@@ -133,7 +161,8 @@ Toate comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare com
 - `#01*#` ... `#05*#` - Stergere numere 1-5
 - `#cd*<secunde>#` - Setare cooldown (10-3600s, ex: `#cd*300#` = 5 minute)
 - `#cd*#` - Reset cooldown la fabrica (20 secunde)
-- `#config#` - Afisare configuratie curenta (include `cd:<secunde>`)
+- `#config#` - Afisare configuratie curenta (include `cd:<secunde>` si `alarme:X/Y`)
+- `#rsms#` - Reset manual contor alarme (deblocare dupa atingerea limitei de 20)
 
 ### Comenzi multiple:
 Separate prin virgula intr-un singur SMS. Exemplu:
@@ -144,7 +173,7 @@ Separate prin virgula intr-un singur SMS. Exemplu:
 
 ### Format raspuns configuratie:
 ```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s,semnal:80%
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s,alarme:3/20,semnal:80%
 ```
 
 ## Configuratie din fabrica
@@ -196,7 +225,7 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 - SMS text mode (nu PDU), charset GSM, SMSC setat prin `sAPI_SmsCfgScaAddr(ORANGE_SMSC)` in `initRetea()`
 - Variabila `reteaConectata` este globala, definita in `network.c`, folosita in `led.c`
 - Variabila `intrareActiva` este globala, definita in `input.c`, folosita in `led.c` (pentru LED rosu)
-- Structura `ConfigData` cu flag `0xA5` pentru validare; camp `cooldownSecunde` pentru cooldown configurabil
+- Structura `ConfigData` cu flag `0xA5` pentru validare; campuri: `cooldownSecunde`, `alarmeAziCount`, `ultimaAlarmaMs`
 - `strcasecmp`/`strncasecmp` POSIX **nu exista** in SDK SIMCom - folositi inlocuitorii proprii `ergo_strcasecmp()` si `ergo_strncasecmp()` definiti in `config.c` si declarati in `ergo_config.h`
 - Main loop: `sAPI_TaskSleep(2)` la final = 2 ticks * 5ms = ~10ms yield CPU
 - `verificaSMSPrimit()` itereaza sloturile 1-20 pana gaseste primul SMS disponibil; buffer continut 512 bytes; proceseaza un singur SMS per apel pentru a nu bloca loop-ul
@@ -206,7 +235,9 @@ Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
 - `verificaConectareRetea()`: apelata si din `initRetea()` si din loop-ul principal (la 60s); actualizeaza `reteaConectata`; returneaza 1=conectat, 0=neconectat
 - `obtiSemnalCSQ()`: returneaza CSQ 0-31 (31=maxim) sau -1 la eroare; valoarea 99 inseamna "necunoscut" conform GSM; folosita in `trimiteConfigCurenta()`
 - Watchdog hardware: `sAPI_WdtStart(60)` pornit inainte de `initRetea()`; alimentat cu `sAPI_WdtFeed()` in loop si in `trimiteSMSAlarma()`; reseteaza modulul daca loop-ul se blocheaza > 60s
-- Buffer raspuns config `trimiteConfigCurenta()`: 450 bytes (suficient pentru 5 numere + mesaj 300 chars + cd + semnal)
+- Buffer raspuns config `trimiteConfigCurenta()`: 480 bytes (suficient pentru 5 numere + mesaj 300 chars + cd + alarme + semnal)
+- Protectie anti-spam: `LIMITA_ALARME_BURST=20` alarme consecutive; reset automat dupa `CALM_PERIOD_MS` (2h fara alarme); contor `alarmeAziCount` + `ultimaAlarmaMs` persistent in config.dat; detectie reboot in `incarcaConfig()` (daca `ultimaAlarmaMs > tickCurent` -> reboot, resetam `ultimaAlarmaMs` dar pastram contorul)
+- `trimiteSMSAlarma()`: verifica calm period -> verifica limita -> incrementeaza + salveaza INAINTE de trimitere
 
 ## Certificare (in curs)
 
