@@ -105,6 +105,24 @@ Actiune:         SMS TRIMIS  NIMIC   NIMIC         SMS TRIMIS
                       |←── 20s cooldown ──→|           |←── 20s...
 ```
 
+## Protectie anti-spam (defectare hardware/software)
+
+In cazul unui defect (ex: GPIO blocat HIGH, bug software), modulul ar putea trimite SMS-uri la infinit. Mecanismul de protectie:
+
+- **Limita burst:** maxim **20 alarme** consecutive inainte de blocare
+- **Reset automat dupa 2h de liniste:** daca nu s-a trimis nicio alarma in ultimele 2 ore, contorul se reseteaza automat
+- **Contorul persista** in filesystem la reset watchdog (nu se pierde la repornire)
+- **Reset manual:** comanda SMS `#rsms#`
+
+**Comportament:**
+
+| Scenariu | Rezultat |
+|----------|----------|
+| GPIO defect (declanseaza continuu) | 20 alarme → blocat permanent (fara niciodata 2h liniste) |
+| Alarme dimineata, tehnicianul repara | 20 alarme → 2h liniste → contor reset → alarma seara trimisa ✓ |
+| Reset watchdog in timp ce e blocat | Contorul persista, 2h liniste necesare pentru deblocare |
+| Reset manual de operator | `#rsms#` → deblocare imediata |
+
 ## Configurare prin SMS
 
 Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, modulul raspunde cu configuratia curenta.
@@ -119,7 +137,8 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 | `#01*#` ... `#05*#` | Stergere numere destinatari |
 | `#cd*<secunde>#` | Setare cooldown (10-3600 secunde, ex: `#cd*300#` = 5 minute) |
 | `#cd*#` | Reset cooldown la valoarea din fabrica (20 secunde) |
-| `#config#` | Afisare configuratie curenta (include cooldown si intensitate semnal GSM) |
+| `#config#` | Afisare configuratie curenta |
+| `#rsms#` | Reset manual contor alarme (deblocare dupa atingerea limitei de 20) |
 
 ### Comenzi multiple (intr-un singur SMS)
 
@@ -136,8 +155,10 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 ### Format raspuns configuratie
 
 ```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT TEST,cd:20s,semnal:80%
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT TEST,cd:20s,alarme:3/20,semnal:80%
 ```
+
+Campul `alarme:3/20` indica cate alarme s-au trimis din limita curenta (reset dupa 2h de liniste).
 
 ## Configuratie din fabrica
 
