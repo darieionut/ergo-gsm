@@ -87,7 +87,6 @@ void trimiteSMSAlarma(void)
     int trimise = 0;
     int erori = 0;
     unsigned long acum;
-    unsigned long fereastra24hMs = 24UL * 3600UL * 1000UL;  // 86400000 ms
 
     if (strlen(config.mesajAlerta) == 0)
     {
@@ -97,28 +96,32 @@ void trimiteSMSAlarma(void)
 
     acum = getTickMs();
 
-    // Verifica daca fereastra de 24h a expirat -> reseteaza contorul
-    if (acum - config.alarmeFereastraStartMs >= fereastra24hMs)
+    // Daca a trecut CALM_PERIOD_MS (2h) de la ultima alarma -> reset contor.
+    // Inseamna ca problema a fost rezolvata (liniste = sistem OK).
+    // Un modul defect care declanseaza continuu NU va avea niciodata 2h de liniste,
+    // deci contorul sau ramane blocat.
+    if (config.ultimaAlarmaMs > 0 &&
+        (acum - config.ultimaAlarmaMs) >= CALM_PERIOD_MS)
     {
-        sAPI_Debug("[ALARMA] Fereastra 24h expirata -> reset contor (era %u alarme).",
+        sAPI_Debug("[ALARMA] 2h liniste -> reset contor alarme (era %u).",
                    config.alarmeAziCount);
         config.alarmeAziCount = 0;
-        config.alarmeFereastraStartMs = acum;
     }
 
-    // Verifica limita zilnica (protectie anti-spam la defectare hardware/software)
-    if (config.alarmeAziCount >= LIMITA_ALARME_ZI)
+    // Verifica limita burst (protectie anti-spam la defectare hardware/software)
+    if (config.alarmeAziCount >= LIMITA_ALARME_BURST)
     {
-        sAPI_Debug("[ALARMA] LIMITA ZILNICA ATINSA (%u/%d)! SMS blocat.",
-                   config.alarmeAziCount, LIMITA_ALARME_ZI);
+        sAPI_Debug("[ALARMA] LIMITA BURST ATINSA (%u/%d)! SMS blocat.",
+                   config.alarmeAziCount, LIMITA_ALARME_BURST);
         return;
     }
 
     // Incrementeaza si salveaza INAINTE de trimitere:
     // contorul persista in filesystem chiar daca modulul se reseteaza in timpul trimiterii.
     config.alarmeAziCount++;
+    config.ultimaAlarmaMs = acum;
     salveazaConfig();
-    sAPI_Debug("[ALARMA] Alarma %u/%d in fereastra 24h.", config.alarmeAziCount, LIMITA_ALARME_ZI);
+    sAPI_Debug("[ALARMA] Alarma %u/%d (liniste reset dupa 2h).", config.alarmeAziCount, LIMITA_ALARME_BURST);
 
     for (i = 0; i < MAX_NUMERE; i++)
     {
@@ -258,7 +261,7 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
     {
         sAPI_Debug("[CMD] Reset contor alarme zilnice (%u -> 0).", config.alarmeAziCount);
         config.alarmeAziCount = 0;
-        config.alarmeFereastraStartMs = getTickMs();
+        config.ultimaAlarmaMs = 0;
         salveazaConfig();
         return;
     }
@@ -427,7 +430,7 @@ void trimiteConfigCurenta(const char* numar)
     pos += snprintf(buf + pos, sizeof(buf) - pos, ",cd:%us", config.cooldownSecunde);
 
     pos += snprintf(buf + pos, sizeof(buf) - pos, ",alarme:%u/%d",
-                    config.alarmeAziCount, LIMITA_ALARME_ZI);
+                    config.alarmeAziCount, LIMITA_ALARME_BURST);
 
     // Intensitate semnal GSM (CSQ 0-31 convertit in procent)
     {
