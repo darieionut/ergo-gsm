@@ -1,31 +1,65 @@
 # CLAUDE.md - ERGO GASALERT
 
-**Versiune firmware:** v4.2
+**Versiune firmware:** v5.0
 
 ## Despre proiect
 
-Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E** (procesor Unisoc 8910DM, ARM Cortex-A5). Produsul se numeste **ERGO GASALERT** si este dezvoltat de **Plato Global SRL** (Romania) in parteneriat cu **Navoi Concept** pentru **Energoinstal Premium SRL** (firma autorizata ANRE pentru instalatii gaz).
+Firmware pentru modulul GSM de notificare SMS bazat pe **STM32C011F4U6TR** (ARM Cortex-M0+, 48MHz) ca MCU principal si **SIMCom A7682E** (LTE Cat-1) ca modul GSM controlat prin comenzi AT via UART. Produsul se numeste **ERGO GASALERT** si este dezvoltat de **Plato Global SRL** (Romania) in parteneriat cu **Navoi Concept** pentru **Energoinstal Premium SRL** (firma autorizata ANRE pentru instalatii gaz).
 
-**Scop:** Modul pasiv de monitorizare montat in casa scarii care detecteaza prezenta tensiunii 230V AC pe o intrare si trimite SMS de alarma la maxim 5 numere de telefon. Se instaleaza in paralel cu electrovalva de gaz din cladirile rezidentiale - cand sistemul de detectie gaz opreste gazul (electrovalva primeste 230V), modulul nostru detecteaza acea tensiune si notifica locatarii prin SMS.
+**Scop:** Modul pasiv de monitorizare montat in casa scarii care detecteaza prezenta tensiunii 230V AC pe o intrare si trimite SMS de alarma la maxim 5 numere de telefon. Se instaleaza in paralel cu electrovalva de gaz din cladirile rezidentiale.
 
 **IMPORTANT:** Modulul este PASIV - nu influenteaza in niciun fel functionarea sistemului de detectie gaz sau a electrovalvei. Este un dispozitiv auxiliar de notificare.
 
 ## Hardware
 
-- **Placa:** HXY-A7670E-V1.3
-- **Procesor:** SIMCom A7670E cu OpenCPU integrat (ARM Cortex-A5) - NU exista microcontroller separat
+- **MCU:** STM32C011F4U6TR (ARM Cortex-M0+, 48MHz, 16KB Flash, 6KB RAM, UFQFPN20)
+- **Modul GSM:** SIMCom A7682E (LTE Cat-1/Cat-M1/NB-IoT, controlat prin AT commands via UART)
 - **Retea:** Orange Romania, APN "internet", SMSC +40744000060
-- **SIM:** micro-SIM
-- **Alimentare:** 230V AC prin sursa in comutatie izolata galvanic (SELV)
-- **Intrare:** 230V AC prin optocuplor (izolat galvanic)
-- **LED-uri:** 3 (verde + galben + rosu) - pe viitoarea versiune de PCB
-- **Antena:** externa, conector SMA
+- **SIM:** nano-SIM (pe modulul A7682E)
+- **Alimentare:** 230V AC prin sursa in comutatie izolata galvanic (SELV) → 3.3V STM32 + tensiune A7682E
+- **Intrare:** 230V AC prin optocuplor (izolat galvanic) → GPIO STM32 (PA5)
+- **LED-uri:** 3 (verde + galben + rosu) - controlate direct de STM32
+- **Antena:** externa, conector SMA (pe A7682E)
+- **Programare/Debug:** SWD (ST-Link, PA13/PA14) + UART debug optional (PB6)
+
+### Arhitectura sistem
+
+```
+230V AC ─── Optocuplor ─── PA5 (GPIO input, pull-down)
+                                     │
+                               STM32C011F4U6TR
+                               (MCU principal)
+                                     │
+                            PA9/PA10 USART1 (AT commands, 115200)
+                                     │
+                              SIMCom A7682E
+                              (modul LTE Cat-1)
+                                     │
+                               Retea 4G Orange
+                                     │
+                               SMS destinatari
+```
+
+### Pini GPIO (orientativi, de verificat pe schema finala)
+
+| Pin STM32 | Functie | Directie |
+|-----------|---------|----------|
+| PA0 | LED verde | Output PP |
+| PA1 | LED galben | Output PP |
+| PA4 | LED rosu | Output PP |
+| PA5 | Intrare optocuplor (230V detect) | Input Pull-Down |
+| PA6 | A7682E PWRKEY | Output PP |
+| PA9 | USART1 TX → A7682E RX | AF1 |
+| PA10 | USART1 RX ← A7682E TX | AF1 |
+| PA13 | SWDIO (programare/debug) | Rezervat |
+| PA14 | SWDCLK (programare/debug) | Rezervat |
+| PB6 | USART2 TX (debug UART optional) | AF2 |
 
 ### Conectori pe placa
 
 - **CN1 (rigleta verde):** Alimentare 230V AC + intrare monitorizata
-- **J4 (conector debug UART):** TX, RX, GND - pentru programare firmware
-- **Slot micro-SIM**
+- **J4 (SWD + UART debug):** SWDIO, SWDCLK, GND, TX debug - programare si debug
+- **Slot nano-SIM** (pe modulul A7682E)
 - **Conector antena SMA**
 
 ### Riglete
@@ -37,31 +71,57 @@ Firmware OpenCPU pentru modulul GSM de notificare SMS bazat pe **SIMCom A7670E**
 
 ## Limbaj si platforma
 
-- **Limbaj:** C
-- **Platforma:** SIMCom OpenCPU SDK pentru A7670E
-- **Compilare:** ARM GCC Toolchain
-- **Programare:** UART prin conectorul J4
-- **API-uri SDK:** functii `sAPI_*` (GPIO, SMS, Network, Timer, Filesystem)
-- **Entry point:** `sAPP_MainTask(void* pData)`
+- **Limbaj:** C (C11)
+- **MCU:** STM32C011F4U6TR - ARM Cortex-M0+, 48MHz, 16KB Flash, 6KB RAM
+- **SDK/HAL:** STM32 HAL (STM32CubeC0 - STM32Cube_FW_C0)
+- **Compilare:** ARM GCC Toolchain (`arm-none-eabi-gcc`)
+- **Programare:** SWD via ST-Link (J4)
+- **Comunicare GSM:** UART1 (PA9/PA10) → A7682E, comenzi AT (AT+CMGF, AT+CMGS, AT+CMGR, AT+CMGD, AT+CREG, AT+CSQ, AT+CSCA)
+- **Entry point:** `main()` standard C
+- **Config storage:** Flash intern STM32 (pagina 7, adresa 0x08003800, 2KB)
+- **Watchdog:** IWDG hardware STM32 (~28s timeout, LSI 32kHz / prescaler 256)
+- **Tick:** `HAL_GetTick()` (1ms rezolutie, SysTick)
+
+### Resurse STM32C011F4 utilizate
+
+| Periferic | Utilizare |
+|-----------|-----------|
+| USART1 (PA9/PA10) | Comunicare AT cu A7682E, 115200 baud, RX interrupt |
+| USART2 (PB6) | Debug UART optional (TX only), compilat cu -DDEBUG_UART_ENABLE |
+| GPIOA (PA0,PA1,PA4) | LED-uri verde, galben, rosu |
+| GPIOA PA5 | Intrare optocuplor (input pull-down) |
+| GPIOA PA6 | A7682E PWRKEY |
+| IWDG | Watchdog hardware (~28s timeout) |
+| Flash pagina 7 (0x08003800) | Stocare configuratie persistenta (2KB) |
+| SysTick | `HAL_GetTick()` - baza de timp 1ms |
+
+**ATENTIE resurse limitate:**
+- 16KB Flash: codul + HAL NU trebuie sa depaseasca 0x08003800 (14KB). Verifica sectiunea .text in fisierul .map dupa compilare!
+- 6KB RAM: buffere mari sunt declarate `static` in sms.c (nu pe stiva). Nu folosi `malloc`.
 
 ## Structura cod
 
 ```
-Makefile          - Template build pentru ARM GCC + SIMCom OpenCPU SDK
+Makefile          - Build ARM GCC + STM32 HAL/LL
 
 src/
-  main.c          - Functia principala sAPP_MainTask() + loop
-  config.c        - Incarcare/salvare configuratie din filesystem + utilitare
+  main.c          - main() + HAL init (GPIO, USART1, IWDG) + loop principal
+                    Contine: alimenteazaWDT(), dbg(), ISR USART1, HAL_UART_RxCpltCallback
+  config.c        - Configuratie in Flash STM32 (erase + program DOUBLEWORD) + utilitare
                     (inclusiv ergo_strcasecmp/ergo_strncasecmp, getTickMs, delayMs)
-  sms.c           - Trimitere SMS, procesare comenzi SMS, configurare
-  input.c         - Monitorizare intrare 230V + detectare impuls + cooldown
-  led.c           - Control LED-uri (verde + galben)
-  network.c       - Conectare/reconectare retea Orange Romania
+  gsm.c           - Driver AT commands pentru A7682E
+                    Ring buffer RX 256 bytes, gsm_cmd(), gsm_trimite_sms(),
+                    gsm_citeste_sms(), gsm_sterge_sms(), gsm_get_creg(), gsm_get_csq()
+  sms.c           - Trimitere SMS, procesare comenzi, configurare (via gsm.c)
+  input.c         - Monitorizare intrare 230V + detectare impuls + cooldown (via HAL_GPIO)
+  led.c           - Control LED-uri verde + galben + rosu (via HAL_GPIO_WritePin)
+  network.c       - Conectare/reconectare retea Orange Romania (via gsm_get_creg/csq)
 
 include/
-  ergo_pins.h     - Definire pini GPIO
+  ergo_pins.h     - Definire pini GPIO STM32 (port + pin HAL)
   ergo_config.h   - Constante timp, structura ConfigData, numere fabrica,
-                    prototipuri utilitare si inlocuitori POSIX
+                    prototipuri utilitare, CONFIG_FLASH_ADDR, WATCHDOG_*
+  ergo_gsm.h      - Prototipuri driver AT / A7682E
   ergo_led.h      - Prototipuri LED
   ergo_input.h    - Prototipuri intrare
   ergo_sms.h      - Prototipuri SMS
@@ -88,161 +148,113 @@ Modulul are **3 LED-uri**: verde, galben si rosu.
 | **Nealimentat** | Stins | Stins | Stins |
 
 ### Reguli LED:
-- LED verde APRINS FIX = boot in curs (software se initializeaza)
-- LED verde CLIPESTE = software initializat si ruleaza OK (cu sau fara semnal GSM)
+- LED verde APRINS FIX = boot in curs
+- LED verde CLIPESTE = software initializat si ruleaza OK
 - LED galben STINS = nu e conectat la retea 4G
 - LED galben CLIPESTE = conectat la retea 4G
-- LED rosu APRINS FIX = tensiune 230V prezenta fizic pe intrare (timp real, inclusiv zgomot sub 0.8s)
-- LED rosu STINS = intrare inactiva
+- LED rosu APRINS FIX = tensiune 230V prezenta fizic pe intrare (timp real)
 - La impuls valid: TOATE 3 aprinse fix 3 secunde, apoi revin la starea normala
 
 ## Logica detectare impuls si trimitere SMS
 
 ### Parametri:
 - **Durata minima impuls:** 0.8 secunde (800ms) continuu
-- **Cooldown dupa SMS:** 20 secunde
+- **Cooldown dupa SMS:** 20 secunde default (configurabil prin SMS)
 - **Frecventa maxima:** 1 SMS la 20 secunde
 
 ### Algoritm:
-1. Monitorizeaza continuu intrarea (scanare la 10ms)
-2. Cand apare tensiune 230V pe intrare -> start cronometru
-3. Daca tensiunea ramane **minim 0.8s continuu** -> IMPULS VALID
-4. Daca tensiunea dispare inainte de 0.8s -> zgomot, IGNORAT
+1. Monitorizeaza continuu intrarea PA5 (scanare la 10ms)
+2. Cand apare tensiune 230V → PA5=HIGH → start cronometru
+3. Daca tensiunea ramane **minim 0.8s continuu** → IMPULS VALID
+4. Daca dispare inainte de 0.8s → zgomot, IGNORAT
 5. La impuls valid, verifica cooldown:
-   - NU in cooldown -> LED-uri aprinse 3s + TRIMITE SMS + cooldown 20s
-   - DA in cooldown -> IGNORA impulsul
-6. Dupa 20s cooldown -> accepta impulsuri noi
+   - NU in cooldown → TRIMITE SMS + LED-uri 3s + cooldown 20s
+   - DA in cooldown → IGNORA
+6. Dupa cooldown → accepta impulsuri noi
 
-### Diagrama:
-```
-Intrare 230V:  ___████████___██___████████████___████████___
-                   0.8s OK   <0.8  ignorat(cd)      0.8s OK
-                      ↓        ↓       ↓               ↓
-Actiune:         SMS TRIMIS  NIMIC   NIMIC         SMS TRIMIS
-                      |←── 20s cooldown ──→|           |←── 20s...
-```
+## Protectie anti-spam
 
-## Protectie anti-spam (defectare hardware/software)
-
-Mecanism de protectie impotriva trimiterii necontrolate de SMS-uri in caz de defect (GPIO blocat HIGH, bug software etc.).
-
-### Parametri:
 - **`LIMITA_ALARME_BURST`** = 20 alarme consecutive maxim
-- **`CALM_PERIOD_MS`** = 2 ore (7200000ms) fara alarme = reset automat contor
+- **`CALM_PERIOD_MS`** = 2 ore fara alarme = reset automat contor
+- Contor persistent in Flash (persista la reset watchdog)
+- Reset manual: comanda SMS `#rsms#`
 
-### Logica in `trimiteSMSAlarma()`:
-1. Daca `(acum - ultimaAlarmaMs) >= 2h` si `ultimaAlarmaMs > 0` → reset contor (liniste = problema rezolvata)
-2. Daca `alarmeAziCount >= 20` → BLOCAT, return
-3. `alarmeAziCount++`, `ultimaAlarmaMs = acum`, `salveazaConfig()` → INAINTE de trimitere
-4. Trimite SMS-urile
-
-### Persistenta la reboot (watchdog):
-In `incarcaConfig()`, dupa incarcare:
-- Daca `ultimaAlarmaMs > getTickMs()` → reboot detectat (tick-urile au pornit de la 0)
-- Actiune: `ultimaAlarmaMs = getTickMs()` (resetam referinta temporala) dar `alarmeAziCount` se pastreaza
-- Rezultat: modulul defect care rebooteaza continuu nu isi reseteaza contorul; deblocare doar dupa 2h fara alarme
-
-### Scenarii:
-| Scenariu | Comportament |
-|----------|--------------|
-| GPIO blocat HIGH (trigger continuu) | 20 alarme → blocat; fara 2h liniste → ramane blocat |
-| Alarme reale + reparatie | 20 alarme → 2h liniste → reset automat → alarma noua trimisa ✓ |
-| Reboot watchdog repetat | Contorul persista; 2h de uptime linistit necesare pentru deblocare |
-| Operator deblocheaza manual | `#rsms#` → `alarmeAziCount=0`, `ultimaAlarmaMs=0`, salvat |
+### Detectie reboot in `incarcaConfig()`:
+Daca `ultimaAlarmaMs > getTickMs()` → reboot detectat (HAL_GetTick porneste de la 0).
+Actiune: `ultimaAlarmaMs = getTickMs()` dar `alarmeAziCount` se pastreaza.
 
 ## Configurare prin SMS
 
-Toate comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, modulul raspunde automat cu configuratia curenta.
-
 ### Comenzi:
-- `#msm*<text>#` - Setare mesaj alerta (max 300 caractere, fara diacritice)
+- `#msm*<text>#` - Setare mesaj alerta (max 160 caractere, fara diacritice)
 - `#msm*#` - Stergere mesaj alerta
 - `#01*<numar>#` ... `#05*<numar>#` - Setare numere 1-5
 - `#01*#` ... `#05*#` - Stergere numere 1-5
-- `#cd*<secunde>#` - Setare cooldown (10-3600s, ex: `#cd*300#` = 5 minute)
+- `#cd*<secunde>#` - Setare cooldown (10-3600s)
 - `#cd*#` - Reset cooldown la fabrica (20 secunde)
-- `#config#` - Afisare configuratie curenta (include `cd:<secunde>` si `alarme:X/Y`)
-- `#rsms#` - Reset manual contor alarme (deblocare dupa atingerea limitei de 20)
+- `#config#` - Afisare configuratie curenta
+- `#rsms#` - Reset manual contor alarme
 
-### Comenzi multiple:
-Separate prin virgula intr-un singur SMS. Exemplu:
+### Comenzi multiple (intr-un singur SMS):
 `#msm*Atentie gaz oprit#, #01*0712345678#, #02*0798765432#`
-
-### Reset complet:
-`#msm*#, #01*#, #02*#, #03*#, #04*#, #05*#, #cd*#`
 
 ### Format raspuns configuratie:
 ```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s,alarme:3/20,semnal:80%
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT,cd:20s,alarme:3/20,semnal:80%
 ```
 
 ## Configuratie din fabrica
 
-Constante definite in `ergo_config.h`: `FABRICA_NUMAR_01`, `FABRICA_NUMAR_05`, `FABRICA_MESAJ_ALERTA`, `FABRICA_COOLDOWN_S`, `ORANGE_SMSC`.
-
 | Parametru | Valoare |
 |-----------|---------|
 | Nr01 | **0762862213** (presetat) |
-| Nr02 | (gol) |
-| Nr03 | (gol) |
-| Nr04 | (gol) |
+| Nr02-04 | (gol) |
 | Nr05 | **1745** (numar scurt, presetat) |
-| Mesaj | **ALARMA GAZ OPRIT TEST** (default din fabrica, definit ca `FABRICA_MESAJ_ALERTA`) |
-| Cooldown | **20 secunde** (configurabil prin SMS `#cd*<s>#`, interval 10-3600s) |
+| Mesaj | **ALARMA GAZ OPRIT** |
+| Cooldown | **20 secunde** |
 
-Configuratia se salveaza in filesystem-ul intern A7670E la calea `/simcom/ergo_config.dat`. La prima pornire sau daca fisierul e corupt, se reinitializeaza cu valorile din fabrica.
+Configuratia se salveaza in Flash la 0x08003800 (pagina 7 STM32C011). La prima pornire sau Flash invalid (flag != 0xA5), se reinitializeaza cu valorile din fabrica.
 
 ## Tipuri numere suportate
 
 - Standard Romania: `07XXXXXXXX` (10 cifre)
 - Cu prefix international: `+407XXXXXXXX`
 - Numere scurte: 3-6 cifre (ex: `1745`)
-- Functia `esteNumarScurt()` detecteaza numere sub 7 cifre fara prefix `+`
 
 ## Intervale loop principal
 
 | Actiune | Interval |
 |---------|----------|
-| Scanare intrare | 10ms |
+| Scanare intrare + WDT feed | 10ms |
 | Actualizare LED-uri | 50ms |
 | Verificare SMS primite | 1s |
 | Verificare retea | 60s |
 
-## Pini GPIO (de verificat pe schema)
-
-Pinii sunt definiti in `include/ergo_pins.h` cu valori orientative:
-- `PIN_LED_VERDE` = SC_MODULE_GPIO_01
-- `PIN_LED_GALBEN` = SC_MODULE_GPIO_02
-- `PIN_LED_ROSU` = SC_MODULE_GPIO_03
-- `PIN_INTRARE` = SC_MODULE_GPIO_05
-
-**IMPORTANT:** Pinii exacti trebuie verificati pe schema electrica HXY-A7670E-V1.3.
-
 ## Note pentru dezvoltare
 
-- Tick rate SDK: 5ms/tick (folosit in `config.c`: `sAPI_GetTicks() * 5`) - confirmat in cod, dar verificati si in `sdk_config.h`
-- Functii SDK: `sAPI_GetTicks()`, `sAPI_TaskSleep()`, `sAPI_GpioSetValue()`, `sAPI_GpioGetValue()`, `sAPI_SmsSendMsg()`, `sAPI_SmsReadMsg()`, `sAPI_SmsDeleteMsg()`, `sAPI_NetworkGetCgreg()`, `sAPI_NetworkGetCsq()`, `sAPI_WdtStart()`, `sAPI_WdtFeed()`, `sAPI_fopen()`, `sAPI_fread()`, `sAPI_fwrite()`, `sAPI_fclose()`
-- SMS text mode (nu PDU), charset GSM, SMSC setat prin `sAPI_SmsCfgScaAddr(ORANGE_SMSC)` in `initRetea()`
-- Variabila `reteaConectata` este globala, definita in `network.c`, folosita in `led.c`
-- Variabila `intrareActiva` este globala, definita in `input.c`, folosita in `led.c` (pentru LED rosu)
-- Structura `ConfigData` cu flag `0xA5` pentru validare; campuri: `cooldownSecunde`, `alarmeAziCount`, `ultimaAlarmaMs`
-- `strcasecmp`/`strncasecmp` POSIX **nu exista** in SDK SIMCom - folositi inlocuitorii proprii `ergo_strcasecmp()` si `ergo_strncasecmp()` definiti in `config.c` si declarati in `ergo_config.h`
-- Main loop: `sAPI_TaskSleep(2)` la final = 2 ticks * 5ms = ~10ms yield CPU
-- `verificaSMSPrimit()` itereaza sloturile 1-20 pana gaseste primul SMS disponibil; buffer continut 512 bytes; proceseaza un singur SMS per apel pentru a nu bloca loop-ul
-- `trimiteSMSAlarma()`: pauza 1 secunda intre SMS-uri consecutive (`delayMs(1000)`)
-- `initRetea()`: 15 tentative cu delay 2s intre ele (max ~30s timeout initial)
-- `reconectareRetea()`: 1 singura tentativa (apelata din loop la fiecare 60s daca retea pierduta; fara delay intern)
-- `verificaConectareRetea()`: apelata si din `initRetea()` si din loop-ul principal (la 60s); actualizeaza `reteaConectata`; returneaza 1=conectat, 0=neconectat
-- `obtiSemnalCSQ()`: returneaza CSQ 0-31 (31=maxim) sau -1 la eroare; valoarea 99 inseamna "necunoscut" conform GSM; folosita in `trimiteConfigCurenta()`
-- Watchdog hardware: `sAPI_WdtStart(60)` pornit inainte de `initRetea()`; alimentat cu `sAPI_WdtFeed()` in loop si in `trimiteSMSAlarma()`; reseteaza modulul daca loop-ul se blocheaza > 60s
-- Buffer raspuns config `trimiteConfigCurenta()`: 480 bytes (suficient pentru 5 numere + mesaj 300 chars + cd + alarme + semnal)
-- Protectie anti-spam: `LIMITA_ALARME_BURST=20` alarme consecutive; reset automat dupa `CALM_PERIOD_MS` (2h fara alarme); contor `alarmeAziCount` + `ultimaAlarmaMs` persistent in config.dat; detectie reboot in `incarcaConfig()` (daca `ultimaAlarmaMs > tickCurent` -> reboot, resetam `ultimaAlarmaMs` dar pastram contorul)
-- `trimiteSMSAlarma()`: verifica calm period -> verifica limita -> incrementeaza + salveaza INAINTE de trimitere
+- **getTickMs()** = `HAL_GetTick()` (1ms/tick, SysTick 48MHz)
+- **delayMs()** = `HAL_Delay(ms)`
+- **alimenteazaWDT()** = `HAL_IWDG_Refresh(&hiwdg)` - definita in main.c
+- **dbg()** = send string pe UART2 (TX only PB6); compilat doar cu `-DDEBUG_UART_ENABLE`
+- **gsm_rx_callback()** = apelata din `HAL_UART_RxCpltCallback()` in main.c
+- **Ring buffer UART RX:** 256 bytes in gsm.c; interrupt pe byte (HAL_UART_Receive_IT)
+- **Trimitere SMS:** `AT+CMGS="numar"\r` → asteapta `>` → mesaj + 0x1A → asteapta `+CMGS:`
+- **Citire SMS:** `AT+CMGR=<slot>` (slot 1-20); un singur SMS per apel verificaSMSPrimit
+- **WDT in gsm.c:** `alimenteazaWDT()` apelata in gsm_readline() si gsm_wait_char() (operatii blocante)
+- **Flash config:** programare DOUBLEWORD (8 bytes odata); struct padded la multiplu de 8
+- **Alternate functions GPIO:** verifica AF1/AF2 pentru USART1/USART2 in datasheet STM32C011!
+- **Pornire A7682E:** PWRKEY LOW 600ms → HIGH → asteapta "RDY" (timeout 10s)
+- **SMS text mode (nu PDU):** `AT+CMGF=1`, charset `AT+CSCS="GSM"`, SMSC `AT+CSCA="+40744000060"`
+- **`strcasecmp`/`strncasecmp` POSIX** nu exista in toolchain-ul default STM32 - folositi `ergo_strcasecmp()` / `ergo_strncasecmp()` din config.c
+- **Buffere statice in sms.c:** `copie[]`, `buf[]`, `expeditor[]`, `continut[]` sunt `static` pentru a nu depasi stiva de ~1KB
+- **MAX_LUNGIME_MESAJ = 160** (redus de la 300 la un SMS standard GSM; pastreaza RAM)
+- **`reteaConectata`** = global definit in network.c, folosit in led.c si sms.c
+- **`intrareActiva`** = global definit in input.c, folosit in led.c
 
 ## Certificare (in curs)
 
 Produsul este in faza prototip/pre-test. Directive UE vizate:
-- RED 2014/53/EU (echipamente radio) - modulul GSM SIMCom A7670E este deja certificat
+- RED 2014/53/EU (echipamente radio) - modulul GSM SIMCom A7682E este deja certificat
 - LVD 2014/35/EU (siguranta electrica)
 - EMC 2014/30/EU (compatibilitate electromagnetica)
 - RoHS 2011/65/EU
@@ -253,6 +265,6 @@ Laboratorul de testare: ICPE-CA (Romania).
 
 - Limba comentarii: romana (fara diacritice in cod)
 - Nume variabile/functii: romana (camelCase)
-- Debug: `sAPI_Debug("[MODUL] mesaj")` cu prefixe: [ERGO], [LED], [INPUT], [SMS], [RETEA], [CONFIG], [CMD], [COOLDOWN], [BOOT], [GPIO]
+- Debug: `dbg("[MODUL] mesaj")` cu prefixe: [ERGO], [LED], [INPUT], [SMS], [RETEA], [CONFIG], [CMD], [COOLDOWN], [BOOT], [GSM], [ALARMA]
 - Toate constantele in `ergo_config.h`
 - Fiecare modul (.c) include headerul propriu + `ergo_config.h`

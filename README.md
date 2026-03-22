@@ -1,6 +1,6 @@
 # ERGO GASALERT - Modul GSM Notificare SMS (4G)
 
-**Versiune firmware:** v4.2
+**Versiune firmware:** v5.0
 **Dezvoltat de:** Plato Global SRL (Romania)
 **Partener:** Navoi Concept pentru Energoinstal Premium SRL (firma autorizata ANRE pentru instalatii gaz)
 
@@ -16,22 +16,54 @@ Modul pasiv de monitorizare alimentat la 230V AC, montat in casa scarii blocului
 
 | Componenta    | Detalii                                               |
 |---------------|-------------------------------------------------------|
-| **Placa**     | HXY-A7670E-V1.3                                       |
-| **Modul**     | SIMCom A7670E cu OpenCPU integrat (Unisoc 8910DM, ARM Cortex-A5) |
+| **MCU**       | STM32C011F4U6TR (ARM Cortex-M0+, 48MHz, 16KB Flash, 6KB RAM, UFQFPN20) |
+| **Modul GSM** | SIMCom A7682E (LTE Cat-1, controlat prin comenzi AT via UART) |
 | **Retea**     | Orange Romania, APN: `internet`, SMSC: `+40744000060` |
-| **SIM**       | micro-SIM                                             |
+| **SIM**       | nano-SIM (pe modulul A7682E)                          |
 | **Alimentare**| 230V AC prin sursa in comutatie izolata galvanic (SELV) |
-| **Intrare**   | 230V AC prin optocuplor (izolat galvanic)             |
-| **LED-uri**   | 3 (verde + galben + rosu)                             |
-| **Antena**    | Externa, conector SMA                                 |
+| **Intrare**   | 230V AC prin optocuplor (izolat galvanic) → GPIO STM32 (PA5) |
+| **LED-uri**   | 3 (verde + galben + rosu) - controlate direct de STM32 |
+| **Antena**    | Externa, conector SMA (pe A7682E)                     |
+
+### Arhitectura sistem
+
+```
+230V AC ─── Optocuplor ─── PA5 GPIO (STM32C011)
+                                    │
+                             STM32C011F4U6TR
+                             (MCU principal, firmware)
+                                    │
+                          USART1 PA9/PA10 (AT commands)
+                                    │
+                             SIMCom A7682E
+                             (modul LTE Cat-1)
+                                    │
+                              Retea 4G Orange
+                                    │
+                              SMS destinatari
+```
+
+### Pini GPIO (orientativi, de verificat pe schema finala)
+
+| Pin | Functie |
+|-----|---------|
+| PA0 | LED verde |
+| PA1 | LED galben |
+| PA4 | LED rosu |
+| PA5 | Intrare optocuplor (input pull-down) |
+| PA6 | A7682E PWRKEY |
+| PA9 | USART1 TX → A7682E RX (AF1) |
+| PA10 | USART1 RX ← A7682E TX (AF1) |
+| PA13/PA14 | SWD (SWDIO/SWDCLK) - programare/debug |
+| PB6 | UART debug TX optional (AF2) |
 
 ### Conectori
 
 | Conector | Functie |
 |----------|---------|
 | **CN1** (rigleta verde) | Alimentare 230V AC + intrare monitorizata |
-| **J4** | Debug UART: TX, RX, GND - programare firmware |
-| Slot micro-SIM | |
+| **J4** | SWD (SWDIO, SWDCLK, GND) + UART debug TX - programare si debug |
+| Slot nano-SIM | Pe modulul A7682E |
 | Conector SMA | Antena externa |
 
 ### Riglete
@@ -45,36 +77,42 @@ Modul pasiv de monitorizare alimentat la 230V AC, montat in casa scarii blocului
 
 ```
 ergo-gsm/
-├── Makefile            # Template build ARM GCC + SIMCom OpenCPU SDK
+├── Makefile
 ├── src/
-│   ├── main.c          # Entry point sAPP_MainTask() + loop principal
-│   ├── config.c        # Configuratie: incarcare/salvare/fabrica + utilitare
-│   ├── sms.c           # SMS: trimitere, comenzi, configurare
-│   ├── input.c         # Intrare: detectare impuls 230V + cooldown
-│   ├── led.c           # LED-uri: verde + galben + rosu
-│   └── network.c       # Retea: conectare/reconectare Orange Romania
+│   ├── main.c      # main() + HAL init (GPIO, USART1, IWDG) + loop principal
+│   ├── config.c    # Config in Flash STM32 (erase/write pagina 7) + utilitare
+│   ├── gsm.c       # Driver AT commands A7682E (UART ring buffer, send/recv)
+│   ├── sms.c       # SMS: trimitere, comenzi, configurare
+│   ├── input.c     # Intrare: detectare impuls 230V + cooldown
+│   ├── led.c       # LED-uri: verde + galben + rosu
+│   └── network.c   # Retea: conectare/reconectare Orange Romania
 ├── include/
-│   ├── ergo_pins.h     # Definire pini GPIO
-│   ├── ergo_config.h   # Constante, structuri, prototipuri utilitare
+│   ├── ergo_pins.h     # Pini GPIO STM32 (port + pin HAL)
+│   ├── ergo_config.h   # Constante, ConfigData, adresa Flash, prototipuri
+│   ├── ergo_gsm.h      # Driver AT A7682E prototipuri
 │   ├── ergo_led.h      # Prototipuri LED
 │   ├── ergo_input.h    # Prototipuri intrare
 │   ├── ergo_sms.h      # Prototipuri SMS
 │   └── ergo_network.h  # Prototipuri retea
 └── docs/
-    ├── led_behavior.md # Comportament LED-uri (detaliat)
-    ├── sms_commands.md # Comenzi SMS (detaliat)
-    └── wiring.md       # Schema conectare
+    ├── led_behavior.md
+    ├── sms_commands.md
+    └── wiring.md
 ```
 
 ## Compilare si programare
 
-**Compilare:** Necesita SIMCom OpenCPU SDK pentru A7670E si ARM GCC Toolchain.
+**Necesita:** STM32CubeC0 HAL (STM32Cube_FW_C0) + ARM GCC Toolchain (`arm-none-eabi-gcc`).
 
 ```sh
 make
 ```
 
-**Programare:** Prin UART pe conectorul **J4** (TX, RX, GND) de pe placa HXY-A7670E-V1.3.
+**Debug UART:** Adauga `-DDEBUG_UART_ENABLE` in Makefile pentru a activa output-ul de debug pe PB6 (115200 baud).
+
+**Programare:** Via SWD cu ST-Link, conector **J4** (SWDIO, SWDCLK, GND).
+
+**ATENTIE Flash:** Codul aplicatiei NU trebuie sa depaseasca 14KB (0x08003800). Pagina 7 (0x08003800-0x08003FFF) este rezervata pentru configuratie. Verifica fisierul `.map` dupa compilare.
 
 ## Comportament LED-uri
 
@@ -88,12 +126,12 @@ make
 | Dupa 3 secunde, intrare inactiva | Revine la clipire | Revine (sau stins) | STINS |
 | Nealimentat | Stins | Stins | Stins |
 
-**Reguli:** LED verde clipeste = software ruleaza OK. LED galben clipeste = conectat 4G. LED rosu = tensiune fizica prezenta pe intrare (timp real). La impuls valid, toate 3 aprinse fix 3 secunde.
+**Reguli:** LED verde clipeste = firmware OK. LED galben clipeste = conectat 4G. LED rosu = tensiune fizica pe intrare. La impuls valid, toate 3 aprinse fix 3 secunde.
 
 ## Logica detectare impuls
 
 - **Durata minima impuls valid:** 0.8 secunde (800ms) continuu
-- **Cooldown dupa SMS:** 20 secunde default (configurabil prin SMS `#cd*<s>#`, interval 10-3600s)
+- **Cooldown dupa SMS:** 20 secunde default (configurabil `#cd*<s>#`, interval 10-3600s)
 - **Scanare intrare:** la 10ms
 
 ```
@@ -106,20 +144,16 @@ Actiune:         SMS TRIMIS  NIMIC   NIMIC         SMS TRIMIS
 
 ## Protectie anti-spam (defectare hardware/software)
 
-In cazul unui defect (ex: GPIO blocat HIGH, bug software), modulul ar putea trimite SMS-uri la infinit. Mecanismul de protectie:
-
 - **Limita burst:** maxim **20 alarme** consecutive inainte de blocare
-- **Reset automat dupa 2h de liniste:** daca nu s-a trimis nicio alarma in ultimele 2 ore, contorul se reseteaza automat
-- **Contorul persista** in filesystem la reset watchdog (nu se pierde la repornire)
+- **Reset automat dupa 2h de liniste:** contorul se reseteaza automat
+- **Contorul persista** in Flash la reset watchdog (nu se pierde la repornire)
 - **Reset manual:** comanda SMS `#rsms#`
-
-**Comportament:**
 
 | Scenariu | Rezultat |
 |----------|----------|
-| GPIO defect (declanseaza continuu) | 20 alarme → blocat permanent (fara niciodata 2h liniste) |
-| Alarme dimineata, tehnicianul repara | 20 alarme → 2h liniste → contor reset → alarma seara trimisa ✓ |
-| Reset watchdog in timp ce e blocat | Contorul persista, 2h liniste necesare pentru deblocare |
+| GPIO defect (declanseaza continuu) | 20 alarme → blocat permanent |
+| Alarme reale + reparatie | 20 alarme → 2h liniste → contor reset → alarma noua ✓ |
+| Reset watchdog in timp ce e blocat | Contorul persista, 2h liniste necesare |
 | Reset manual de operator | `#rsms#` → deblocare imediata |
 
 ## Configurare prin SMS
@@ -130,14 +164,14 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 
 | Comanda | Actiune |
 |---------|---------|
-| `#msm*<text>#` | Setare mesaj alerta (max 300 caractere, fara diacritice) |
+| `#msm*<text>#` | Setare mesaj alerta (max 160 caractere, fara diacritice) |
 | `#msm*#` | Stergere mesaj alerta |
 | `#01*<numar>#` ... `#05*<numar>#` | Setare numere destinatari 1-5 |
 | `#01*#` ... `#05*#` | Stergere numere destinatari |
-| `#cd*<secunde>#` | Setare cooldown (10-3600 secunde, ex: `#cd*300#` = 5 minute) |
+| `#cd*<secunde>#` | Setare cooldown (10-3600 secunde) |
 | `#cd*#` | Reset cooldown la valoarea din fabrica (20 secunde) |
 | `#config#` | Afisare configuratie curenta |
-| `#rsms#` | Reset manual contor alarme (deblocare dupa atingerea limitei de 20) |
+| `#rsms#` | Reset manual contor alarme |
 
 ### Comenzi multiple (intr-un singur SMS)
 
@@ -145,33 +179,23 @@ Comenzile se trimit prin SMS catre numarul SIM din modul. Dupa fiecare comanda, 
 #msm*Atentie gaz oprit#, #01*0712345678#, #02*0798765432#
 ```
 
-### Reset complet
-
-```
-#msm*#, #01*#, #02*#, #03*#, #04*#, #05*#, #cd*#
-```
-
 ### Format raspuns configuratie
 
 ```
-01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT TEST,cd:20s,alarme:3/20,semnal:80%
+01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:ALARMA GAZ OPRIT,cd:20s,alarme:3/20,semnal:80%
 ```
-
-Campul `alarme:3/20` indica cate alarme s-au trimis din limita curenta (reset dupa 2h de liniste).
 
 ## Configuratie din fabrica
 
 | Parametru | Valoare |
 |-----------|---------|
 | Nr01 | `0762862213` (presetat) |
-| Nr02 | (gol) |
-| Nr03 | (gol) |
-| Nr04 | (gol) |
+| Nr02-04 | (gol) |
 | Nr05 | `1745` (numar scurt, presetat) |
-| Mesaj | `ALARMA GAZ OPRIT TEST` (default din fabrica, configurabil prin SMS) |
-| Cooldown | `20` secunde (default, configurabil prin SMS `#cd*<s>#`, interval 10-3600s) |
+| Mesaj | `ALARMA GAZ OPRIT` (configurabil prin SMS) |
+| Cooldown | `20` secunde (configurabil prin SMS `#cd*<s>#`, interval 10-3600s) |
 
-Configuratia se salveaza in filesystem-ul intern A7670E la `/simcom/ergo_config.dat`. La prima pornire sau fisier corupt, se reinitializeaza cu valorile din fabrica.
+Configuratia se salveaza in Flash intern STM32C011 la adresa `0x08003800` (pagina 7, 2KB). La prima pornire sau Flash corupt (flag != 0xA5), se reinitializeaza cu valorile din fabrica.
 
 ### Tipuri numere suportate
 
@@ -183,15 +207,19 @@ Configuratia se salveaza in filesystem-ul intern A7670E la `/simcom/ergo_config.
 
 | Actiune | Interval |
 |---------|----------|
-| Scanare intrare | 10ms |
+| Scanare intrare + WDT feed | 10ms |
 | Actualizare LED-uri | 50ms |
 | Verificare SMS primite | 1s |
 | Verificare retea | 60s |
 
+## Watchdog
+
+IWDG hardware STM32 cu timeout ~28 secunde (LSI ~32kHz, prescaler 256, reload 3500). Alimentat la fiecare 10ms din loop principal si in operatiile AT blocante din gsm.c. Daca loop-ul se blocheaza > 28s (ex: blocat pe UART), modulul se reseteaza automat.
+
 ## Certificare (in curs)
 
 Produsul este in faza prototip/pre-test. Directive UE vizate:
-- RED 2014/53/EU (echipamente radio) - modulul GSM SIMCom A7670E este deja certificat
+- RED 2014/53/EU (echipamente radio) - modulul GSM SIMCom A7682E este deja certificat
 - LVD 2014/35/EU (siguranta electrica)
 - EMC 2014/30/EU (compatibilitate electromagnetica)
 - RoHS 2011/65/EU

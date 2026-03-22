@@ -1,179 +1,184 @@
 // ============================================================================
-// config.c - Configuratie: incarcare, salvare, fabrica, utilitare
-// ERGO GASALERT - Modul GSM Notificare SMS (4G)
+// config.c - Configuratie: incarcare/salvare in Flash STM32, utilitare
+// ERGO GASALERT v5.0 - STM32C011F4U6TR + SIMCom A7682E
+// ============================================================================
+//
+// Configuratia se salveaza in ultima pagina de Flash a STM32C011F4 (pagina 7).
+// Adresa: CONFIG_FLASH_ADDR = 0x08003800 (pagina 7, dimensiune 2KB).
+// Flash STM32C011 se programeaza in double-words (64 biti = 8 bytes odata).
+// Citirea flash-ului este memory-mapped (simpla dereferentiere pointer).
+//
+// ATENTIE: Codul aplicatiei NU trebuie sa depaseasca 0x08003800 (14KB)!
+//          Verifica sectiunea .text in fisierul .map dupa compilare.
+//
 // ============================================================================
 
-#include "simcom_os.h"
-#include "simcom_common.h"
-#include "simcom_debug.h"
-#include "simcom_filesystem.h"
+#include "stm32c0xx_hal.h"
+#include <string.h>
+#include <ctype.h>
+#include <stdio.h>
 
 #include "../include/ergo_config.h"
 
 // ============================================================================
 // VARIABILA GLOBALA CONFIGURATIE
 // ============================================================================
+
 ConfigData config;
 
 // ============================================================================
 // INITIALIZARE CONFIGURATIE DIN FABRICA
 // ============================================================================
-// Se apeleaza la prima pornire sau cand fisierul config este corupt.
-// Numere presetate: Nr01 = 0762862213, Nr05 = 1745
-// Mesaj: gol (se configureaza prin SMS)
-// ============================================================================
 
 void initConfigFabrica(void)
 {
-    sAPI_Debug("[CONFIG] Initializare FABRICA...");
+    dbg("[CONFIG] Initializare FABRICA...");
 
     memset(&config, 0, sizeof(ConfigData));
 
-    // Numere presetate din fabrica
-    strncpy(config.numere[0], FABRICA_NUMAR_01, MAX_LUNGIME_NUMAR);  // Nr01
-    strncpy(config.numere[4], FABRICA_NUMAR_05, MAX_LUNGIME_NUMAR);  // Nr05
-
-    // Nr02, Nr03, Nr04: goale (se configureaza prin SMS)
-
-    // Mesaj default din fabrica (se poate modifica prin SMS #msm*<text>#)
+    strncpy(config.numere[0], FABRICA_NUMAR_01, MAX_LUNGIME_NUMAR);
+    strncpy(config.numere[4], FABRICA_NUMAR_05, MAX_LUNGIME_NUMAR);
     strncpy(config.mesajAlerta, FABRICA_MESAJ_ALERTA, MAX_LUNGIME_MESAJ);
 
-    config.cooldownSecunde = FABRICA_COOLDOWN_S;
+    config.cooldownSecunde  = FABRICA_COOLDOWN_S;
+    config.alarmeAziCount   = 0;
+    config.ultimaAlarmaMs   = 0;
+    config.flagValid        = 0xA5;
 
-    config.flagValid = 0xA5;
-
-    sAPI_Debug("[CONFIG] FABRICA Nr01: %s", FABRICA_NUMAR_01);
-    sAPI_Debug("[CONFIG] FABRICA Nr05: %s (scurt)", FABRICA_NUMAR_05);
-    sAPI_Debug("[CONFIG] FABRICA Mesaj: %s", FABRICA_MESAJ_ALERTA);
-    sAPI_Debug("[CONFIG] FABRICA Cooldown: %ds", FABRICA_COOLDOWN_S);
+    dbg("[CONFIG] FABRICA: Nr01=" FABRICA_NUMAR_01
+        " Nr05=" FABRICA_NUMAR_05
+        " Msj=" FABRICA_MESAJ_ALERTA);
 
     salveazaConfig();
 }
 
 // ============================================================================
-// INCARCARE CONFIGURATIE DIN FISIER
+// INCARCARE CONFIGURATIE DIN FLASH
+// Flash-ul STM32 este memory-mapped la adresa CONFIG_FLASH_ADDR.
 // ============================================================================
 
 void incarcaConfig(void)
 {
-    int fd;
-    int bytesRead;
     int i;
+    unsigned long tickCurent;
 
-    sAPI_Debug("[CONFIG] Incarcare...");
+    dbg("[CONFIG] Incarcare din Flash...");
     memset(&config, 0, sizeof(ConfigData));
 
-    fd = sAPI_fopen(CONFIG_FILE_PATH, "rb");
-    if (fd < 0)
+    // Citire directa din flash (memory-mapped pe STM32)
+    memcpy(&config, (const void *)CONFIG_FLASH_ADDR, sizeof(ConfigData));
+
+    if (config.flagValid != 0xA5)
     {
-        sAPI_Debug("[CONFIG] Fisier inexistent -> fabrica.");
+        dbg("[CONFIG] Flash invalid (flag != 0xA5) -> fabrica.");
         initConfigFabrica();
         return;
     }
 
-    bytesRead = sAPI_fread(fd, (unsigned char*)&config, sizeof(ConfigData));
-    sAPI_fclose(fd);
-
-    if (bytesRead != sizeof(ConfigData) || config.flagValid != 0xA5)
-    {
-        sAPI_Debug("[CONFIG] Corupt (citit %d/%d bytes, flag=0x%02X) -> fabrica.",
-                   bytesRead, (int)sizeof(ConfigData), (unsigned char)config.flagValid);
-        initConfigFabrica();
-        return;
-    }
-
-    // Fix #11: garanteaza null-terminator la sfarsitul string-urilor,
-    // in caz de scriere partiala sau coruptie partiala a fisierului.
+    // Garanteaza null-terminator (protectie coruptie partiala)
     config.mesajAlerta[MAX_LUNGIME_MESAJ] = '\0';
-    {
-        int i;
-        for (i = 0; i < MAX_NUMERE; i++)
-            config.numere[i][MAX_LUNGIME_NUMAR] = '\0';
-    }
+    for (i = 0; i < MAX_NUMERE; i++)
+        config.numere[i][MAX_LUNGIME_NUMAR] = '\0';
 
-    // Sanitizare cooldown (fisier vechi poate avea 0 sau valoare invalida)
+    // Sanitizare cooldown
     if (config.cooldownSecunde < MIN_COOLDOWN_S || config.cooldownSecunde > MAX_COOLDOWN_S)
     {
-        sAPI_Debug("[CONFIG] Cooldown invalid (%u) -> reset fabrica.", config.cooldownSecunde);
+        dbg("[CONFIG] Cooldown invalid -> reset fabrica.");
         config.cooldownSecunde = FABRICA_COOLDOWN_S;
     }
 
-    // Sanitizare contor alarme zilnice
+    // Sanitizare contor alarme
     if (config.alarmeAziCount > (unsigned int)(LIMITA_ALARME_BURST * 10))
     {
-        sAPI_Debug("[CONFIG] alarmeAziCount invalid (%u) -> reset.", config.alarmeAziCount);
+        dbg("[CONFIG] alarmeAziCount invalid -> reset.");
         config.alarmeAziCount = 0;
         config.ultimaAlarmaMs = 0;
     }
 
-    // Detectie reboot: daca ultimaAlarmaMs > tickCurent, tick-urile au pornit de la 0
-    // dupa reset watchdog. Pastram contorul (protectia anti-spam persista) dar resetam
-    // ultimaAlarmaMs la tickCurent, astfel incat perioada de liniste se masoara
-    // de la momentul reboot-ului (conservativ - nu reseteaza contorul prematur).
+    // Detectie reboot watchdog: daca ultimaAlarmaMs > tickCurent,
+    // tick-urile au pornit de la 0 (reset). Pastram contorul (protectia
+    // anti-spam persista la reboot) dar resetam referinta temporala.
+    tickCurent = getTickMs();
+    if (config.ultimaAlarmaMs > tickCurent)
     {
-        unsigned long tickCurent = getTickMs();
-        if (config.ultimaAlarmaMs > tickCurent)
-        {
-            sAPI_Debug("[CONFIG] Reboot detectat: ultimaAlarma resetata (count pastrat: %u/%d).",
-                       config.alarmeAziCount, LIMITA_ALARME_BURST);
-            config.ultimaAlarmaMs = tickCurent;
-        }
+        dbg("[CONFIG] Reboot detectat: ultimaAlarma resetata, contor pastrat.");
+        config.ultimaAlarmaMs = tickCurent;
     }
 
-    // Afisare configuratie incarcata
-    sAPI_Debug("[CONFIG] OK. Mesaj: %s",
-              strlen(config.mesajAlerta) > 0 ? config.mesajAlerta : "(gol)");
-
-    sAPI_Debug("[CONFIG] Cooldown: %ds", config.cooldownSecunde);
-
-    for (i = 0; i < MAX_NUMERE; i++)
-    {
-        if (strlen(config.numere[i]) > 0)
-            sAPI_Debug("[CONFIG] Nr%02d: %s%s", i + 1, config.numere[i],
-                      esteNumarScurt(config.numere[i]) ? " (scurt)" : "");
-    }
+    dbg("[CONFIG] OK.");
 }
 
 // ============================================================================
-// SALVARE CONFIGURATIE IN FISIER
+// SALVARE CONFIGURATIE IN FLASH STM32
+// Procedura: Unlock -> Erase pagina 7 -> Program double-words -> Lock
 // ============================================================================
 
 void salveazaConfig(void)
 {
-    int fd;
-    int bytesWritten;
+    // Buffer aliniat la 8 bytes pentru programarea DOUBLEWORD
+    uint8_t  buf[CONFIG_FLASH_PADDED_SIZE];
+    uint32_t addr = CONFIG_FLASH_ADDR;
+    uint32_t i;
+    HAL_StatusTypeDef status;
+    FLASH_EraseInitTypeDef eraseInit;
+    uint32_t pageError;
+
     config.flagValid = 0xA5;
 
-    fd = sAPI_fopen(CONFIG_FILE_PATH, "wb");
-    if (fd < 0)
+    // Pregateste bufferul cu 0xFF (valoarea flash sters) + config
+    memset(buf, 0xFF, sizeof(buf));
+    memcpy(buf, &config, sizeof(ConfigData));
+
+    // --- Unlock flash ---
+    if (HAL_FLASH_Unlock() != HAL_OK)
     {
-        sAPI_Debug("[CONFIG] EROARE deschidere fisier scriere!");
+        dbg("[CONFIG] EROARE: Flash unlock esuat!");
         return;
     }
 
-    // Fix #10: verifica ca s-au scris exact toti bytes.
-    // Daca sAPI_fwrite esueaza sau scrie partial, fisierul e corupt.
-    bytesWritten = sAPI_fwrite(fd, (unsigned char*)&config, sizeof(ConfigData));
-    sAPI_fclose(fd);
-
-    if (bytesWritten != (int)sizeof(ConfigData))
+    // --- Erase pagina de configuratie ---
+    eraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
+    eraseInit.Page      = CONFIG_FLASH_PAGE;
+    eraseInit.NbPages   = 1;
+    status = HAL_FLASHEx_Erase(&eraseInit, &pageError);
+    if (status != HAL_OK)
     {
-        sAPI_Debug("[CONFIG] EROARE scriere! (%d/%d bytes). Config pierduta!",
-                   bytesWritten, (int)sizeof(ConfigData));
+        dbg("[CONFIG] EROARE: Flash erase esuat!");
+        HAL_FLASH_Lock();
         return;
     }
 
-    sAPI_Debug("[CONFIG] Salvat OK (%d bytes).", bytesWritten);
+    // --- Program double-words (8 bytes odata) ---
+    for (i = 0; i < CONFIG_FLASH_PADDED_SIZE; i += 8)
+    {
+        uint64_t dword;
+        memcpy(&dword, buf + i, 8);
+        status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, addr + i, dword);
+        if (status != HAL_OK)
+        {
+            dbg("[CONFIG] EROARE: Flash write esuat!");
+            break;
+        }
+        alimenteazaWDT();   // tine WDT viu pe durata scrierii
+    }
+
+    // --- Lock flash ---
+    HAL_FLASH_Lock();
+
+    // Verificare: citeste inapoi si compara cu config curent
+    if (memcmp((const void *)CONFIG_FLASH_ADDR, &config, sizeof(ConfigData)) != 0)
+        dbg("[CONFIG] EROARE: Verificare post-write ESUATA!");
+    else
+        dbg("[CONFIG] Salvat OK in Flash.");
 }
 
 // ============================================================================
-// UTILITARE
+// UTILITARE (identice cu v4.x - logic nemodificata)
 // ============================================================================
 
-// Eliminare spatii, \r, \n, \t de la inceput si sfarsit
-void curataSir(char* sir)
+void curataSir(char *sir)
 {
-    char* start = sir;
+    char *start = sir;
     int len;
 
     while (*start == ' ' || *start == '\r' || *start == '\n' || *start == '\t')
@@ -181,16 +186,15 @@ void curataSir(char* sir)
     if (start != sir)
         memmove(sir, start, strlen(start) + 1);
 
-    len = strlen(sir);
+    len = (int)strlen(sir);
     while (len > 0 && (sir[len - 1] == ' ' || sir[len - 1] == '\r' ||
            sir[len - 1] == '\n' || sir[len - 1] == '\t'))
         sir[--len] = '\0';
 }
 
-// Validare numar telefon (cifre + optional + la inceput)
-int esteNumarValid(const char* numar)
+int esteNumarValid(const char *numar)
 {
-    int len = strlen(numar);
+    int len = (int)strlen(numar);
     int i;
 
     if (len < MIN_LUNGIME_NUMAR_SCURT || len > MAX_LUNGIME_NUMAR)
@@ -204,58 +208,41 @@ int esteNumarValid(const char* numar)
     return 1;
 }
 
-// Verificare numar scurt (sub 7 cifre, fara +)
-int esteNumarScurt(const char* numar)
+int esteNumarScurt(const char *numar)
 {
-    int len = strlen(numar);
+    int len = (int)strlen(numar);
     if (len == 0 || numar[0] == '+' || len >= 7) return 0;
     return 1;
 }
 
-// Returneaza milisecundele de la pornire
 unsigned long getTickMs(void)
 {
-    return sAPI_GetTicks() * 5;  // 1 tick = 5ms (verificati in SDK)
+    return HAL_GetTick();   // SysTick HAL: 1ms per tick
 }
 
-// Delay in milisecunde
-// Fix #12: valori < 5ms (< 1 tick) se rotunjesc in sus la 1 tick (5ms)
-// pentru a nu apela sAPI_TaskSleep(0) cu comportament nedefinit.
 void delayMs(unsigned long ms)
 {
-    unsigned long ticks = ms / 5;
-    if (ticks == 0 && ms > 0)
-        ticks = 1;
-    sAPI_TaskSleep(ticks);
+    HAL_Delay(ms);
 }
 
-// ============================================================================
-// INLOCUITORI POSIX (strcasecmp/strncasecmp nu exista in SDK SIMCom)
-// Implementare proprie folosind tolower() din <ctype.h> (C standard)
-// ============================================================================
-
-// Comparatie doua siruri ignorand majuscule/minuscule (ca strcasecmp POSIX)
-int ergo_strcasecmp(const char* a, const char* b)
+int ergo_strcasecmp(const char *a, const char *b)
 {
     while (*a && *b)
     {
         int diff = tolower((unsigned char)*a) - tolower((unsigned char)*b);
         if (diff != 0) return diff;
-        a++;
-        b++;
+        a++; b++;
     }
     return tolower((unsigned char)*a) - tolower((unsigned char)*b);
 }
 
-// Comparatie primele n caractere ignorand majuscule/minuscule (ca strncasecmp POSIX)
-int ergo_strncasecmp(const char* a, const char* b, int n)
+int ergo_strncasecmp(const char *a, const char *b, int n)
 {
     while (n > 0 && *a && *b)
     {
         int diff = tolower((unsigned char)*a) - tolower((unsigned char)*b);
         if (diff != 0) return diff;
-        a++;
-        b++;
+        a++; b++;
         n--;
     }
     if (n == 0) return 0;

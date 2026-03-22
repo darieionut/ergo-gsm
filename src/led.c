@@ -1,9 +1,9 @@
 // ============================================================================
-// led.c - Control LED-uri (verde + galben)
-// ERGO GASALERT - Modul GSM Notificare SMS (4G)
+// led.c - Control LED-uri (verde + galben + rosu)
+// ERGO GASALERT v5.0 - STM32C011F4U6TR + SIMCom A7682E
 // ============================================================================
 //
-// COMPORTAMENT LED-URI:
+// Logica identica cu v4.x. Singura diferenta: GPIO controlat via HAL_GPIO_WritePin.
 //
 //  +--------------------------------+------------------+------------------+------------------+
 //  | STARE                          | LED VERDE        | LED GALBEN       | LED ROSU         |
@@ -18,63 +18,54 @@
 //
 // ============================================================================
 
-#include "simcom_os.h"
-#include "simcom_common.h"
-#include "simcom_debug.h"
-#include "simcom_gpio.h"
+#include "stm32c0xx_hal.h"
 
 #include "../include/ergo_pins.h"
 #include "../include/ergo_config.h"
 #include "../include/ergo_led.h"
 
 // ============================================================================
+// MACROS GPIO (simplifica scrierea)
+// ============================================================================
+
+#define LED_ON(port, pin)   HAL_GPIO_WritePin((port), (pin), GPIO_PIN_SET)
+#define LED_OFF(port, pin)  HAL_GPIO_WritePin((port), (pin), GPIO_PIN_RESET)
+
+// ============================================================================
 // VARIABILE LOCALE
 // ============================================================================
 
-// Mod impuls: ambele aprinse fix 3 secunde
-static int ledModImpuls = 0;
-static unsigned long timpStartModImpuls = 0;
+static int           ledModImpuls        = 0;
+static unsigned long timpStartModImpuls  = 0;
 
-// Referinta timp pentru clipire
-static unsigned long timpStartLedVerde = 0;
-static unsigned long timpStartLedGalben = 0;
+static unsigned long timpStartLedVerde   = 0;
+static unsigned long timpStartLedGalben  = 0;
 
-// Stare boot: 1 = in boot (verde aprins fix), 0 = boot finalizat (clipire)
 static int inBoot = 0;
 
 // ============================================================================
 // INITIALIZARE LED-URI
+// GPIO configurat in MX_GPIO_Init() (output PP, initial LOW = stins).
 // ============================================================================
 
 void initLED(void)
 {
-    sAPI_Debug("[LED] Init: verde + galben + rosu...");
-
-    // Verde - iesire, stins initial
-    sAPI_GpioSetDirection(PIN_LED_VERDE, SC_MODULE_GPIO_OUTPUT);
-    sAPI_GpioSetValue(PIN_LED_VERDE, 0);
-
-    // Galben - iesire, stins initial
-    sAPI_GpioSetDirection(PIN_LED_GALBEN, SC_MODULE_GPIO_OUTPUT);
-    sAPI_GpioSetValue(PIN_LED_GALBEN, 0);
-
-    // Rosu - iesire, stins initial
-    sAPI_GpioSetDirection(PIN_LED_ROSU, SC_MODULE_GPIO_OUTPUT);
-    sAPI_GpioSetValue(PIN_LED_ROSU, 0);
-
-    sAPI_Debug("[LED] OK.");
+    LED_OFF(LED_VERDE_PORT,  LED_VERDE_PIN);
+    LED_OFF(LED_GALBEN_PORT, LED_GALBEN_PIN);
+    LED_OFF(LED_ROSU_PORT,   LED_ROSU_PIN);
+    dbg("[LED] Init OK.");
 }
 
 // ============================================================================
-// BOOT: LED verde aprins fix, galben stins
+// BOOT: LED verde aprins fix, restul stinse
 // ============================================================================
 
 void ledBootStart(void)
 {
     inBoot = 1;
-    sAPI_GpioSetValue(PIN_LED_VERDE, 1);   // Verde APRINS FIX
-    sAPI_GpioSetValue(PIN_LED_GALBEN, 0);  // Galben STINS
-    sAPI_GpioSetValue(PIN_LED_ROSU, 0);    // Rosu STINS
+    LED_ON (LED_VERDE_PORT,  LED_VERDE_PIN);
+    LED_OFF(LED_GALBEN_PORT, LED_GALBEN_PIN);
+    LED_OFF(LED_ROSU_PORT,   LED_ROSU_PIN);
 }
 
 // ============================================================================
@@ -84,27 +75,25 @@ void ledBootStart(void)
 void ledBootEnd(void)
 {
     inBoot = 0;
-    timpStartLedVerde = getTickMs();
+    timpStartLedVerde  = getTickMs();
     timpStartLedGalben = getTickMs();
 }
 
 // ============================================================================
-// ACTIVEAZA MOD IMPULS: ambele aprinse fix 3 secunde
-// Fix #2: timpStartModImpuls se seteaza la TERMINAREA trimiterii SMS (apelantul
-// apeleaza aceasta functie DUPA trimiteSMSAlarma), astfel incat cele 3 secunde
-// de LED sunt calculate de la sfarsitul trimiterii, nu de la inceputul ei.
+// ACTIVEAZA MOD IMPULS: toate 3 aprinse fix 3 secunde
+// Apelata DUPA trimiteSMSAlarma() (timer-ul curge de la sfarsitul trimiterii).
 // ============================================================================
 
 void activeazaModImpulsLED(void)
 {
-    ledModImpuls = 1;
+    ledModImpuls       = 1;
     timpStartModImpuls = getTickMs();
 
-    sAPI_GpioSetValue(PIN_LED_VERDE, 1);
-    sAPI_GpioSetValue(PIN_LED_GALBEN, 1);
-    sAPI_GpioSetValue(PIN_LED_ROSU, 1);
+    LED_ON(LED_VERDE_PORT,  LED_VERDE_PIN);
+    LED_ON(LED_GALBEN_PORT, LED_GALBEN_PIN);
+    LED_ON(LED_ROSU_PORT,   LED_ROSU_PIN);
 
-    sAPI_Debug("[LED] MOD IMPULS: toate 3 aprinse fix 3s.");
+    dbg("[LED] MOD IMPULS: toate 3 aprinse fix 3s.");
 }
 
 // ============================================================================
@@ -115,67 +104,61 @@ void actualizeazaLeduri(void)
 {
     unsigned long acum = getTickMs();
 
-    // -----------------------------------------------------------
-    // In timpul boot-ului nu facem nimic (verde e aprins fix)
-    // -----------------------------------------------------------
     if (inBoot)
         return;
 
-    // -----------------------------------------------------------
-    // MOD IMPULS: toate 3 aprinse fix 3 secunde
-    // -----------------------------------------------------------
+    // --- MOD IMPULS: toate 3 aprinse fix 3 secunde ---
     if (ledModImpuls)
     {
         if (acum - timpStartModImpuls >= LED_IMPULS_DURATA_MS)
         {
-            // Revenire la clipire normala.
-            // Fix #13: nu mai facem return - continuam mai jos pentru a aplica
-            // imediat starea normala (inclusiv stingerea LED-ului rosu daca
-            // intrarea e inactiva), fara a astepta 50ms pana la urmatoarea iteratie.
-            ledModImpuls = 0;
-            timpStartLedVerde = acum;
+            ledModImpuls       = 0;
+            timpStartLedVerde  = acum;
             timpStartLedGalben = acum;
-            sAPI_Debug("[LED] Revenire la clipire normala.");
+            dbg("[LED] Revenire la clipire normala.");
+            // Continua mai jos pentru a aplica imediat starea normala
         }
         else
         {
-            // Toate 3 aprinse fix
-            sAPI_GpioSetValue(PIN_LED_VERDE, 1);
-            sAPI_GpioSetValue(PIN_LED_GALBEN, 1);
-            sAPI_GpioSetValue(PIN_LED_ROSU, 1);
+            LED_ON(LED_VERDE_PORT,  LED_VERDE_PIN);
+            LED_ON(LED_GALBEN_PORT, LED_GALBEN_PIN);
+            LED_ON(LED_ROSU_PORT,   LED_ROSU_PIN);
             return;
         }
     }
 
-    // -----------------------------------------------------------
-    // MOD NORMAL
-    // -----------------------------------------------------------
+    // --- MOD NORMAL ---
 
     // LED VERDE: clipeste mereu ON 0.5s / OFF 0.5s (firmware OK)
     {
-        unsigned long perioadaVerde = LED_VERDE_ON_MS + LED_VERDE_OFF_MS;
-        unsigned long pozitieVerde = (acum - timpStartLedVerde) % perioadaVerde;
+        unsigned long perioada = LED_VERDE_ON_MS + LED_VERDE_OFF_MS;
+        unsigned long pozitie  = (acum - timpStartLedVerde) % perioada;
 
-        sAPI_GpioSetValue(PIN_LED_VERDE, pozitieVerde < LED_VERDE_ON_MS ? 1 : 0);
+        if (pozitie < LED_VERDE_ON_MS)
+            LED_ON(LED_VERDE_PORT, LED_VERDE_PIN);
+        else
+            LED_OFF(LED_VERDE_PORT, LED_VERDE_PIN);
     }
 
-    // LED GALBEN: depinde de starea retelei
+    // LED GALBEN: clipeste daca retea 4G, stins daca nu
     if (reteaConectata)
     {
-        // CONECTAT 4G: clipeste ON 0.5s / OFF 0.5s
-        unsigned long perioadaGalben = LED_GALBEN_ON_MS + LED_GALBEN_OFF_MS;
-        unsigned long pozitieGalben = (acum - timpStartLedGalben) % perioadaGalben;
+        unsigned long perioada = LED_GALBEN_ON_MS + LED_GALBEN_OFF_MS;
+        unsigned long pozitie  = (acum - timpStartLedGalben) % perioada;
 
-        sAPI_GpioSetValue(PIN_LED_GALBEN, pozitieGalben < LED_GALBEN_ON_MS ? 1 : 0);
+        if (pozitie < LED_GALBEN_ON_MS)
+            LED_ON(LED_GALBEN_PORT, LED_GALBEN_PIN);
+        else
+            LED_OFF(LED_GALBEN_PORT, LED_GALBEN_PIN);
     }
     else
     {
-        // FARA RETEA: galben STINS complet
-        sAPI_GpioSetValue(PIN_LED_GALBEN, 0);
+        LED_OFF(LED_GALBEN_PORT, LED_GALBEN_PIN);
     }
 
     // LED ROSU: reflecta starea fizica a intrarii in timp real
-    // Aprins = tensiune prezenta pe intrare (230V detectat)
-    // Stins  = intrare inactiva
-    sAPI_GpioSetValue(PIN_LED_ROSU, intrareActiva ? 1 : 0);
+    if (intrareActiva)
+        LED_ON(LED_ROSU_PORT, LED_ROSU_PIN);
+    else
+        LED_OFF(LED_ROSU_PORT, LED_ROSU_PIN);
 }

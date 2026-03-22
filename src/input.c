@@ -1,29 +1,17 @@
 // ============================================================================
 // input.c - Monitorizare intrare 230V AC + detectare impuls + cooldown
-// ERGO GASALERT - Modul GSM Notificare SMS (4G)
+// ERGO GASALERT v5.0 - STM32C011F4U6TR + SIMCom A7682E
 // ============================================================================
 //
-// LOGICA:
-// 1. Cand apare tensiune pe intrare (optocuplor -> GPIO HIGH) -> start timer
-// 2. Daca tensiunea ramane minim 0.8s continuu -> IMPULS VALID
-// 3. Daca dispare inainte de 0.8s -> zgomot, ignorat
-// 4. La impuls valid:
-//    - NU cooldown -> SMS alarma + LED-uri aprinse 3s + cooldown 20s
-//    - DA cooldown -> IGNORAT
+// Logica identica cu v4.x. Singura diferenta: GPIO citit via HAL_GPIO_ReadPin.
 //
-// DIAGRAMA:
-// Intrare:  ___████████___██___████████████___████████___
-//               0.8s OK   <0.8  ignorat(cd)      0.8s OK
-//                  ↓        ↓       ↓               ↓
-// Actiune:    SMS TRIMIS  NIMIC   NIMIC         SMS TRIMIS
-//                  |←─ 20s cooldown ─→|              |←─ 20s...
+// PIN_INTRARE: PA5, input cu pull-down intern.
+// HIGH = tensiune 230V prezenta pe intrare (optocuplor conduce).
+// LOW  = intrare inactiva.
 //
 // ============================================================================
 
-#include "simcom_os.h"
-#include "simcom_common.h"
-#include "simcom_debug.h"
-#include "simcom_gpio.h"
+#include "stm32c0xx_hal.h"
 
 #include "../include/ergo_pins.h"
 #include "../include/ergo_config.h"
@@ -35,45 +23,41 @@
 // VARIABILE LOCALE
 // ============================================================================
 
-// Monitorizare intrare
-static int impulsInCurs = 0;
+static int           impulsInCurs    = 0;
 static unsigned long timpStartImpuls = 0;
-// Fix #1: previne re-triggering-ul cand tensiunea ramane HIGH dupa impuls valid.
-// Impulsul e "consumat" si nu se mai restarteaza ciclul pana cand intrarea nu
-// revine la 0 (HIGH → LOW → HIGH = impuls nou).
-static int impulsValidat = 0;
+static int           impulsValidat   = 0;   // fix anti-retrigger
 
-// Cooldown
-static int inCooldown = 0;
-static unsigned long timpStartCooldown = 0;
+static int           inCooldown         = 0;
+static unsigned long timpStartCooldown  = 0;
 
 // Stare intrare in timp real (citita de led.c pentru LED rosu)
 int intrareActiva = 0;
 
 // ============================================================================
 // INITIALIZARE PIN INTRARE
+// GPIO configurat in MX_GPIO_Init() din main.c (input + pull-down).
+// Aceasta functie este un placeholder pentru debug.
 // ============================================================================
 
 void initIntrare(void)
 {
-    sAPI_Debug("[INPUT] Init pin intrare...");
-    sAPI_GpioSetDirection(PIN_INTRARE, SC_MODULE_GPIO_INPUT);
-    sAPI_Debug("[INPUT] OK.");
+    dbg("[INPUT] Pin intrare PA5 init OK (pull-down).");
 }
 
 // ============================================================================
-// MONITORIZARE INTRARE + DETECTARE IMPULS
-// Apelata din loop principal la fiecare 10ms.
+// MONITORIZARE INTRARE + DETECTARE IMPULS (apelata la 10ms)
 // ============================================================================
 
 void monitorizareIntrare(void)
 {
-    int stareCurenta = 0;
+    GPIO_PinState pin;
+    int stareCurenta;
     unsigned long acum = getTickMs();
 
-    sAPI_GpioGetValue(PIN_INTRARE, &stareCurenta);
+    pin = HAL_GPIO_ReadPin(INTRARE_PORT, INTRARE_PIN);
+    stareCurenta = (pin == GPIO_PIN_SET) ? 1 : 0;
 
-    // Actualizeaza starea intrarii pentru LED rosu
+    // Actualizeaza starea pentru LED rosu
     intrareActiva = stareCurenta;
 
     if (stareCurenta == 0)
@@ -81,75 +65,66 @@ void monitorizareIntrare(void)
         // INTRARE INACTIVA: reseteaza starea pentru urmatorul impuls
         if (impulsInCurs)
         {
-            // Tensiune disparuta inainte de 0.8s = zgomot
-            unsigned long durataImpuls = acum - timpStartImpuls;
-            if (durataImpuls < DURATA_IMPULS_MS)
-                sAPI_Debug("[INPUT] Prea scurt (%lu ms) - IGNORAT.", durataImpuls);
+            unsigned long durata = acum - timpStartImpuls;
+            if (durata < DURATA_IMPULS_MS)
+                dbg("[INPUT] Zgomot ignorat (< 0.8s).");
             impulsInCurs = 0;
         }
-        // Fix #1: la coborarea tensiunii, impulsValidat se reseteaza -> permite
-        // detectarea unui nou impuls la urmatoarea urcare a tensiunii.
-        impulsValidat = 0;
+        impulsValidat = 0;  // permite detectarea unui nou impuls
     }
     else if (stareCurenta == 1 && !impulsInCurs && !impulsValidat)
     {
-        // INCEPUT IMPULS NOU: tensiune tocmai a aparut (si nu avem impuls activ
-        // sau deja validat in acest ciclu de tensiune)
-        impulsInCurs = 1;
+        // INCEPUT IMPULS NOU
+        impulsInCurs    = 1;
         timpStartImpuls = acum;
     }
     else if (stareCurenta == 1 && impulsInCurs)
     {
-        // IMPULS IN DESFASURARE: verificam durata
-        unsigned long durataImpuls = acum - timpStartImpuls;
+        // IMPULS IN DESFASURARE: verificam durata minima
+        unsigned long durata = acum - timpStartImpuls;
 
-        if (durataImpuls >= DURATA_IMPULS_MS)
+        if (durata >= DURATA_IMPULS_MS)
         {
-            // IMPULS VALID (>= 0.8 secunde continuu)
-            // Fix #1: marcam ca validat; nu se va re-triggera pana la HIGH->LOW->HIGH
-            impulsInCurs = 0;
-            impulsValidat = 1;
+            // IMPULS VALID (>= 0.8s continuu)
+            impulsInCurs  = 0;
+            impulsValidat = 1;  // anti-retrigger pana la LOW->HIGH nou
 
             if (!inCooldown)
             {
-                sAPI_Debug("[!] IMPULS VALID (>= 0.8s) -> SMS ALARMA");
+                dbg("[!] IMPULS VALID (>= 0.8s) -> SMS ALARMA");
 
-                // Trimitere SMS la toate numerele (poate dura 5-10s)
+                // Trimitere SMS (blocant, poate dura 5-15s)
                 trimiteSMSAlarma();
 
-                // Fix #2: LED-urile se aprind DUPA trimitere, astfel incat
-                // timer-ul de 3s nu expira in timp ce SMS-urile sunt trimise.
+                // LED-uri aprinse fix 3s dupa terminarea trimiterii
                 activeazaModImpulsLED();
 
-                // Fix #3: cooldown porneste dupa terminarea efectiva a trimiterii.
-                inCooldown = 1;
+                // Cooldown porneste dupa trimitere
+                inCooldown        = 1;
                 timpStartCooldown = getTickMs();
-                sAPI_Debug("[COOLDOWN] Blocare %ds.", config.cooldownSecunde);
+                dbg("[COOLDOWN] Blocare activa.");
             }
             else
             {
-                unsigned long cooldownMs = (unsigned long)config.cooldownSecunde * 1000;
-                unsigned long ramas = cooldownMs - (getTickMs() - timpStartCooldown);
-                sAPI_Debug("[COOLDOWN] IGNORAT. Ramas: %lu s", ramas / 1000);
+                dbg("[COOLDOWN] Impuls ignorat (in cooldown).");
             }
         }
     }
 }
 
 // ============================================================================
-// GESTIONARE COOLDOWN
-// Apelata din loop principal la fiecare 10ms.
+// GESTIONARE COOLDOWN (apelata la 10ms)
 // ============================================================================
 
 void gestionareCooldown(void)
 {
     if (inCooldown)
     {
-        unsigned long cooldownMs = (unsigned long)config.cooldownSecunde * 1000;
+        unsigned long cooldownMs = (unsigned long)config.cooldownSecunde * 1000UL;
         if (getTickMs() - timpStartCooldown >= cooldownMs)
         {
             inCooldown = 0;
-            sAPI_Debug("[COOLDOWN] Expirat.");
+            dbg("[COOLDOWN] Expirat.");
         }
     }
 }
