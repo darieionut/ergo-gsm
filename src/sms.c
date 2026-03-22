@@ -1,80 +1,60 @@
 // ============================================================================
 // sms.c - Trimitere SMS, procesare comenzi, configurare
-// ERGO GASALERT - Modul GSM Notificare SMS (4G)
+// ERGO GASALERT v5.0 - STM32C011F4U6TR + SIMCom A7682E
 // ============================================================================
 //
-// COMENZI SMS SUPORTATE:
-//   #msm*<text>#              - Setare mesaj alerta
-//   #msm*#                    - Stergere mesaj alerta
-//   #01*<numar># ... #05*#    - Setare/stergere numere (max 5)
-//   #cd*<secunde>#            - Setare cooldown (10-3600s)
-//   #cd*#                     - Reset cooldown la 20s (fabrica)
-//   #config#                  - Afisare configuratie curenta
-//   Comenzi multiple: separate prin virgula intr-un singur SMS
-//
-// FORMAT RASPUNS CONFIG:
-//   01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:Alarma gaz oprit.,cd:20s,semnal:80%
-//
-// TIPURI NUMERE:
-//   - Standard Romania: 07XXXXXXXX (10 cifre)
-//   - Numere scurte: ex. 1745 (3-6 cifre)
-//   - Cu prefix: +407XXXXXXXX
+// Logica identica cu v4.x.
+// Diferente: sAPI_SmsSendMsg() -> gsm_trimite_sms()
+//            sAPI_SmsReadMsg() -> gsm_citeste_sms()
+//            sAPI_SmsDeleteMsg() -> gsm_sterge_sms()
+//            sAPI_WdtFeed() -> alimenteazaWDT()
 //
 // ============================================================================
 
-#include "simcom_os.h"
-#include "simcom_common.h"
-#include "simcom_debug.h"
-#include "simcom_sms.h"
-#include "simcom_wdt.h"
+#include "stm32c0xx_hal.h"
+#include <string.h>
+#include <stdio.h>
 
 #include "../include/ergo_config.h"
+#include "../include/ergo_gsm.h"
 #include "../include/ergo_sms.h"
 #include "../include/ergo_network.h"
 
 // ============================================================================
 // PROTOTIPURI LOCALE
 // ============================================================================
-static void proceseazaComenziMultiple(const char* expeditor, const char* continut);
-static void proceseazaComanda(const char* expeditor, const char* comanda);
+
+static void proceseazaComenziMultiple(const char *expeditor, const char *continut);
+static void proceseazaComanda(const char *expeditor, const char *comanda);
 
 // ============================================================================
-// TRIMITERE SMS (numere standard + numere scurte)
+// TRIMITERE SMS (un numar)
 // ============================================================================
 
-int trimiteSMS(const char* numar, const char* mesaj)
+int trimiteSMS(const char *numar, const char *mesaj)
 {
-    int rezultat;
-
     if (!reteaConectata)
     {
-        sAPI_Debug("[SMS] EROARE: Retea indisponibila!");
+        dbg("[SMS] EROARE: Retea indisponibila!");
         return 0;
     }
 
     if (strlen(numar) == 0 || strlen(mesaj) == 0)
     {
-        sAPI_Debug("[SMS] EROARE: Numar sau mesaj gol!");
+        dbg("[SMS] EROARE: Numar sau mesaj gol!");
         return 0;
     }
 
-    sAPI_Debug("[SMS] -> %s%s: %s", numar,
-              esteNumarScurt(numar) ? " (scurt)" : "", mesaj);
+    dbg("[SMS] Trimitere SMS...");
 
-    // Numarul se trimite exact asa cum e salvat
-    // Orange Romania accepta atat 07XX cat si numere scurte
-    rezultat = sAPI_SmsSendMsg((char*)numar, (char*)mesaj, strlen(mesaj));
-
-    if (rezultat == 0)
+    if (!gsm_trimite_sms(numar, mesaj))
     {
-        sAPI_Debug("[SMS] OK.");
-        return 1;
-    }
-    else
-    {
-        sAPI_Debug("[SMS] EROARE (cod: %d)", rezultat);
+        dbg("[SMS] EROARE trimitere.");
         return 0;
     }
+
+    dbg("[SMS] OK.");
+    return 1;
 }
 
 // ============================================================================
@@ -85,116 +65,104 @@ void trimiteSMSAlarma(void)
 {
     int i;
     int trimise = 0;
-    int erori = 0;
+    int erori   = 0;
     unsigned long acum;
 
     if (strlen(config.mesajAlerta) == 0)
     {
-        sAPI_Debug("[ALARMA] Mesaj NESETAT! SMS nu se trimite.");
+        dbg("[ALARMA] Mesaj NESETAT! SMS nu se trimite.");
         return;
     }
 
     acum = getTickMs();
 
-    // Daca a trecut CALM_PERIOD_MS (2h) de la ultima alarma -> reset contor.
-    // Inseamna ca problema a fost rezolvata (liniste = sistem OK).
-    // Un modul defect care declanseaza continuu NU va avea niciodata 2h de liniste,
-    // deci contorul sau ramane blocat.
+    // Dupa CALM_PERIOD_MS (2h) fara alarme -> reset contor
     if (config.ultimaAlarmaMs > 0 &&
         (acum - config.ultimaAlarmaMs) >= CALM_PERIOD_MS)
     {
-        sAPI_Debug("[ALARMA] 2h liniste -> reset contor alarme (era %u).",
-                   config.alarmeAziCount);
+        dbg("[ALARMA] 2h liniste -> reset contor alarme.");
         config.alarmeAziCount = 0;
     }
 
-    // Verifica limita burst (protectie anti-spam la defectare hardware/software)
+    // Verificare limita burst (protectie anti-spam la defectare)
     if (config.alarmeAziCount >= LIMITA_ALARME_BURST)
     {
-        sAPI_Debug("[ALARMA] LIMITA BURST ATINSA (%u/%d)! SMS blocat.",
-                   config.alarmeAziCount, LIMITA_ALARME_BURST);
+        dbg("[ALARMA] LIMITA BURST ATINSA! SMS blocat.");
         return;
     }
 
-    // Incrementeaza si salveaza INAINTE de trimitere:
-    // contorul persista in filesystem chiar daca modulul se reseteaza in timpul trimiterii.
+    // Incrementeaza si salveaza INAINTE de trimitere
+    // (contorul persista la reset watchdog)
     config.alarmeAziCount++;
     config.ultimaAlarmaMs = acum;
     salveazaConfig();
-    sAPI_Debug("[ALARMA] Alarma %u/%d (liniste reset dupa 2h).", config.alarmeAziCount, LIMITA_ALARME_BURST);
+
+    dbg("[ALARMA] Trimitere SMS alarma...");
 
     for (i = 0; i < MAX_NUMERE; i++)
     {
         if (strlen(config.numere[i]) > 0)
         {
-            sAPI_Debug("[ALARMA] -> Nr%02d: %s", i + 1, config.numere[i]);
-
-            // Alimenteaza WDT inainte de fiecare trimitere (sAPI_SmsSendMsg
-            // poate bloca cateva secunde pe retea slaba)
-            sAPI_WdtFeed();
+            alimenteazaWDT();   // WDT inainte de fiecare SMS (poate dura 10-30s)
 
             if (trimiteSMS(config.numere[i], config.mesajAlerta))
                 trimise++;
             else
                 erori++;
 
-            delayMs(1000);  // Pauza 1s intre SMS-uri
+            delayMs(1000);      // Pauza 1s intre SMS-uri consecutive
         }
     }
 
-    sAPI_WdtFeed();  // Alimenteaza WDT si dupa ultimul SMS
-    sAPI_Debug("[ALARMA] %d trimise, %d erori.", trimise, erori);
+    alimenteazaWDT();
+    dbg("[ALARMA] Terminat.");
+    (void)trimise; (void)erori;
 }
 
 // ============================================================================
 // VERIFICARE SMS PRIMITE (apelata la fiecare 1s din loop)
 // Itereaza sloturile 1-20 pana gaseste primul SMS disponibil.
-// Fix #4: SMS-urile cu continut gol sunt sterse (nu raman in bucla infinita).
-// Fix #5: Nu se citeste exclusiv slot 1; se cauta primul slot ocupat.
+// Proceseaza un singur SMS per apel pentru a nu bloca loop-ul.
 // ============================================================================
 
 #define SMS_MAX_SLOT    20
 
 void verificaSMSPrimit(void)
 {
-    char expeditor[MAX_LUNGIME_NUMAR + 1];
-    char continut[512];
-    int rezultat;
+    // Buffere statice pentru a evita depasirea stivei (STM32C011 = 6KB RAM)
+    static char expeditor[MAX_LUNGIME_NUMAR + 1];
+    static char continut[200];     // max 160 chars SMS + margine
     int slot;
 
     for (slot = 1; slot <= SMS_MAX_SLOT; slot++)
     {
-        memset(expeditor, 0, sizeof(expeditor));
-        memset(continut, 0, sizeof(continut));
+        expeditor[0] = '\0';
+        continut[0]  = '\0';
 
-        rezultat = sAPI_SmsReadMsg(slot, expeditor, continut, sizeof(continut));
+        if (!gsm_citeste_sms(slot, expeditor, continut, sizeof(continut)))
+            continue;   // slot gol sau eroare, urmatorul
 
-        if (rezultat != 0)
-            continue;  // slot gol sau eroare, trecem la urmatorul
-
-        // Slot ocupat: sterge intotdeauna (inclusiv SMS-uri cu continut gol)
-        // pentru a preveni bucla infinita de re-citire.
-        if (sAPI_SmsDeleteMsg(slot) != 0)
+        // Slot ocupat: sterge inainte de procesare
+        if (!gsm_sterge_sms(slot))
         {
-            sAPI_Debug("[SMS] EROARE stergere slot %d - skip.", slot);
+            dbg("[SMS] EROARE stergere slot - skip.");
             continue;
         }
 
         if (strlen(continut) == 0)
         {
-            sAPI_Debug("[SMS] Slot %d: continut gol, sters.", slot);
+            dbg("[SMS] SMS cu continut gol, sters.");
             continue;
         }
 
         curataSir(expeditor);
         curataSir(continut);
 
-        sAPI_Debug("[SMS PRIMIT] slot=%d %s: %s", slot, expeditor, continut);
+        dbg("[SMS PRIMIT] Procesare comanda...");
 
-        // Procesare comenzi
         proceseazaComenziMultiple(expeditor, continut);
 
-        // Procesam un singur SMS per apel pentru a nu bloca loop-ul
+        // Procesam un singur SMS per apel
         return;
     }
 }
@@ -203,28 +171,25 @@ void verificaSMSPrimit(void)
 // PROCESARE COMENZI MULTIPLE (separate prin virgula)
 // ============================================================================
 
-static void proceseazaComenziMultiple(const char* expeditor, const char* continut)
+static void proceseazaComenziMultiple(const char *expeditor, const char *continut)
 {
-    char copie[512];
-    char* token;
-    char* sf;
+    static char copie[200];     // static = nu consuma stiva
+    char *token;
+    char *sf;
     int comenziProcesate = 0;
 
     strncpy(copie, continut, sizeof(copie) - 1);
     copie[sizeof(copie) - 1] = '\0';
 
     token = strtok(copie, ",");
-
     while (token != NULL)
     {
-        // Trim spatii
         while (*token == ' ') token++;
         sf = token + strlen(token) - 1;
         while (sf > token && *sf == ' ') { *sf = '\0'; sf--; }
 
         if (strlen(token) > 0)
         {
-            sAPI_Debug("[CMD] %s", token);
             proceseazaComanda(expeditor, token);
             comenziProcesate++;
         }
@@ -232,7 +197,6 @@ static void proceseazaComenziMultiple(const char* expeditor, const char* continu
         token = strtok(NULL, ",");
     }
 
-    // Dupa procesarea tuturor comenzilor, trimitem configuratia curenta
     if (comenziProcesate > 0)
         trimiteConfigCurenta(expeditor);
 }
@@ -241,35 +205,26 @@ static void proceseazaComenziMultiple(const char* expeditor, const char* continu
 // PROCESARE O SINGURA COMANDA
 // ============================================================================
 
-static void proceseazaComanda(const char* expeditor, const char* comanda)
+static void proceseazaComanda(const char *expeditor, const char *comanda)
 {
-    int lungime = strlen(comanda);
+    int lungime = (int)strlen(comanda);
     int i;
 
-    // -----------------------------------------------------------
-    // #config# - afisare configuratie
-    // -----------------------------------------------------------
+    // #config# - afisare configuratie (raspunsul se trimite oricum dupa)
     if (ergo_strcasecmp(comanda, "#config#") == 0)
-        return;  // config se trimite oricum dupa procesare
+        return;
 
-    // -----------------------------------------------------------
-    // #rsms# - reset manual contor alarme zilnice
-    // Util cand modulul a atins limita din cauza unor alarme legitime
-    // si operatorul vrea sa reactiveze notificarile imediat.
-    // -----------------------------------------------------------
+    // #rsms# - reset manual contor alarme
     if (ergo_strcasecmp(comanda, "#rsms#") == 0)
     {
-        sAPI_Debug("[CMD] Reset contor alarme zilnice (%u -> 0).", config.alarmeAziCount);
+        dbg("[CMD] Reset contor alarme.");
         config.alarmeAziCount = 0;
         config.ultimaAlarmaMs = 0;
         salveazaConfig();
         return;
     }
 
-    // -----------------------------------------------------------
-    // #msm*<text># - setare mesaj alerta
-    // #msm*#       - stergere mesaj alerta
-    // -----------------------------------------------------------
+    // #msm*<text># sau #msm*# - setare/stergere mesaj alerta
     if (ergo_strncasecmp(comanda, "#msm*", 5) == 0)
     {
         if (lungime < 6 || comanda[lungime - 1] != '#')
@@ -277,13 +232,11 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
 
         if (lungime == 6)
         {
-            // #msm*# = stergere mesaj
             memset(config.mesajAlerta, 0, sizeof(config.mesajAlerta));
-            sAPI_Debug("[CMD] Mesaj STERS.");
+            dbg("[CMD] Mesaj STERS.");
         }
         else
         {
-            // #msm*<text># = setare mesaj
             int lungimeText = lungime - 6;
             if (lungimeText > MAX_LUNGIME_MESAJ)
                 lungimeText = MAX_LUNGIME_MESAJ;
@@ -292,17 +245,14 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
             strncpy(config.mesajAlerta, comanda + 5, lungimeText);
             config.mesajAlerta[lungimeText] = '\0';
             curataSir(config.mesajAlerta);
-            sAPI_Debug("[CMD] Mesaj: %s", config.mesajAlerta);
+            dbg("[CMD] Mesaj setat.");
         }
 
         salveazaConfig();
         return;
     }
 
-    // -----------------------------------------------------------
-    // #01*<numar># ... #05*<numar># - setare numere
-    // #01*#       ... #05*#         - stergere numere
-    // -----------------------------------------------------------
+    // #01*<numar># ... #05*<numar># - setare/stergere numere
     for (i = 1; i <= MAX_NUMERE; i++)
     {
         char prefix[6];
@@ -317,13 +267,11 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
 
             if (lungime == 5)
             {
-                // #0X*# = stergere numar
                 memset(config.numere[idx], 0, sizeof(config.numere[idx]));
-                sAPI_Debug("[CMD] Nr%02d STERS.", i);
+                dbg("[CMD] Numar sters.");
             }
             else
             {
-                // #0X*<numar># = setare numar
                 int lungimeNumar = lungime - 5;
                 if (lungimeNumar > MAX_LUNGIME_NUMAR)
                     lungimeNumar = MAX_LUNGIME_NUMAR;
@@ -335,18 +283,15 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
 
                 if (!esteNumarValid(numarNou))
                 {
-                    // Fix #7: trimite raspuns de eroare explicit catre utilizator.
-                    char errBuf[80];
-                    snprintf(errBuf, sizeof(errBuf),
-                             "EROARE: Nr%02d invalid: %s", i, numarNou);
-                    sAPI_Debug("[CMD] %s", errBuf);
+                    static char errBuf[60];
+                    snprintf(errBuf, sizeof(errBuf), "EROARE: Nr%02d invalid", i);
+                    dbg("[CMD] Numar invalid.");
                     trimiteSMS(expeditor, errBuf);
                     return;
                 }
 
                 strncpy(config.numere[idx], numarNou, MAX_LUNGIME_NUMAR);
-                sAPI_Debug("[CMD] Nr%02d: %s%s", i, config.numere[idx],
-                          esteNumarScurt(config.numere[idx]) ? " (scurt)" : "");
+                dbg("[CMD] Numar setat.");
             }
 
             salveazaConfig();
@@ -354,10 +299,7 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
         }
     }
 
-    // -----------------------------------------------------------
-    // #cd*<secunde># - setare cooldown
-    // #cd*#          - reset la valoarea din fabrica (20s)
-    // -----------------------------------------------------------
+    // #cd*<secunde># sau #cd*# - setare/reset cooldown
     if (ergo_strncasecmp(comanda, "#cd*", 4) == 0)
     {
         if (lungime < 5 || comanda[lungime - 1] != '#')
@@ -365,25 +307,23 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
 
         if (lungime == 5)
         {
-            // #cd*# = reset la fabrica
             config.cooldownSecunde = FABRICA_COOLDOWN_S;
-            sAPI_Debug("[CMD] Cooldown RESET: %ds.", config.cooldownSecunde);
+            dbg("[CMD] Cooldown RESET la fabrica.");
         }
         else
         {
-            // #cd*<secunde># = setare valoare
             int lungimeVal = lungime - 5;
             int val = 0;
             int k;
 
-            if (lungimeVal > 4) lungimeVal = 4;  // max 4 cifre (9999)
+            if (lungimeVal > 4) lungimeVal = 4;
 
             for (k = 0; k < lungimeVal; k++)
             {
                 char c = comanda[4 + k];
                 if (c < '0' || c > '9')
                 {
-                    sAPI_Debug("[CMD] Cooldown invalid: caractere non-numerice.");
+                    dbg("[CMD] Cooldown invalid (non-numeric).");
                     return;
                 }
                 val = val * 10 + (c - '0');
@@ -393,24 +333,24 @@ static void proceseazaComanda(const char* expeditor, const char* comanda)
             if (val > MAX_COOLDOWN_S) val = MAX_COOLDOWN_S;
 
             config.cooldownSecunde = (unsigned int)val;
-            sAPI_Debug("[CMD] Cooldown: %ds.", config.cooldownSecunde);
+            dbg("[CMD] Cooldown setat.");
         }
 
         salveazaConfig();
         return;
     }
 
-    sAPI_Debug("[CMD] Necunoscuta: %s", comanda);
+    dbg("[CMD] Comanda necunoscuta.");
 }
 
 // ============================================================================
 // TRIMITERE CONFIGURATIE CURENTA (raspuns automat dupa comenzi)
-// Format: 01:0762862213,02:(gol),03:(gol),04:(gol),05:1745,msm:text,cd:20s,semnal:80%
+// Buffer static pentru a evita depasirea stivei.
 // ============================================================================
 
-void trimiteConfigCurenta(const char* numar)
+void trimiteConfigCurenta(const char *numar)
 {
-    char buf[480];  // 450 anterior + ~13 bytes pentru ",alarme:XX/YY"
+    static char buf[380];   // 5*22 + 162 + labels + cd + alarme + semnal
     int pos = 0;
     int i;
 
@@ -432,18 +372,14 @@ void trimiteConfigCurenta(const char* numar)
     pos += snprintf(buf + pos, sizeof(buf) - pos, ",alarme:%u/%d",
                     config.alarmeAziCount, LIMITA_ALARME_BURST);
 
-    // Intensitate semnal GSM (CSQ 0-31 convertit in procent)
     {
         int csq = obtiSemnalCSQ();
         if (csq >= 0 && csq <= 31)
-        {
-            int procent = (csq * 100) / 31;
-            pos += snprintf(buf + pos, sizeof(buf) - pos, ",semnal:%d%%", procent);
-        }
+            pos += snprintf(buf + pos, sizeof(buf) - pos, ",semnal:%d%%", (csq * 100) / 31);
         else
             pos += snprintf(buf + pos, sizeof(buf) - pos, ",semnal:N/A");
     }
 
-    sAPI_Debug("[CONFIG] %s", buf);
+    dbg("[CONFIG] Trimitere config curenta...");
     trimiteSMS(numar, buf);
 }
