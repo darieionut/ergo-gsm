@@ -31,6 +31,7 @@ static uint8_t  gsm_rx_byte;                      // buffer intermediar ISR
 static uint8_t  gsm_rxbuf[GSM_RX_BUF_SIZE];       // ring buffer
 static volatile uint16_t gsm_rxhead = 0;
 static volatile uint16_t gsm_rxtail = 0;
+static volatile uint16_t gsm_rx_overrun = 0;       // contor bytes pierduti (overflow)
 
 // ============================================================================
 // CALLBACK ISR (apelat din HAL_UART_RxCpltCallback in main.c)
@@ -46,6 +47,10 @@ void gsm_uart_rx_callback(UART_HandleTypeDef *huart)
     {
         gsm_rxbuf[gsm_rxhead] = gsm_rx_byte;
         gsm_rxhead = next;
+    }
+    else
+    {
+        gsm_rx_overrun++;   // byte pierdut - buffer plin
     }
     // Re-armeaza receptia urmatorului byte
     HAL_UART_Receive_IT(gsm_huart, &gsm_rx_byte, 1);
@@ -68,6 +73,11 @@ static int gsm_getchar(void)
 // Goleste ring buffer-ul RX (inaintea unei noi comenzi AT)
 void gsm_rx_clear(void)
 {
+    if (gsm_rx_overrun > 0)
+    {
+        dbg("[GSM] AVERTISMENT: RX overrun detectat (bytes pierduti)!");
+        gsm_rx_overrun = 0;
+    }
     gsm_rxhead = gsm_rxtail = 0;
 }
 
@@ -131,7 +141,9 @@ int gsm_cmd(const char *cmd, const char *expect, uint32_t timeout_ms,
     deadline = HAL_GetTick() + timeout_ms;
     while (HAL_GetTick() < deadline)
     {
-        uint32_t ramas = deadline - HAL_GetTick();
+        uint32_t now = HAL_GetTick();
+        if (now >= deadline) break;
+        uint32_t ramas = deadline - now;
         if (ramas > 300) ramas = 300;
 
         if (!gsm_readline(line, sizeof(line), ramas))
@@ -309,7 +321,9 @@ int gsm_citeste_sms(int slot, char *expeditor, char *continut, uint16_t cont_siz
     {
         alimenteazaWDT();
 
-        uint32_t ramas = deadline - HAL_GetTick();
+        uint32_t now = HAL_GetTick();
+        if (now >= deadline) break;
+        uint32_t ramas = deadline - now;
         if (ramas > 500) ramas = 500;
 
         if (!gsm_readline(line, sizeof(line), ramas))
@@ -332,8 +346,10 @@ int gsm_citeste_sms(int slot, char *expeditor, char *continut, uint16_t cont_siz
                 if (sf)
                 {
                     int len = (int)(sf - p) - 1;
+                    if (len <= 0) len = 0;
                     if (len > MAX_LUNGIME_NUMAR) len = MAX_LUNGIME_NUMAR;
-                    strncpy(expeditor, p + 1, len);
+                    if (len > 0)
+                        strncpy(expeditor, p + 1, len);
                     expeditor[len] = '\0';
                 }
             }
@@ -384,7 +400,7 @@ int gsm_get_creg(void)
     // Cauta ultimul caracter numeric din raspuns (status-ul)
     // "+CREG: 0,1" -> status = 1
     char *virgula = strchr(raspuns, ',');
-    if (virgula)
+    if (virgula && virgula[1] >= '0' && virgula[1] <= '9')
     {
         int status = (int)(virgula[1] - '0');
         return (status == 1 || status == 5) ? 1 : 0;
@@ -392,7 +408,7 @@ int gsm_get_creg(void)
 
     // Format fara virgula: "+CREG: 1"
     char *spatiu = strrchr(raspuns, ' ');
-    if (spatiu)
+    if (spatiu && spatiu[1] >= '0' && spatiu[1] <= '9')
     {
         int status = (int)(spatiu[1] - '0');
         return (status == 1 || status == 5) ? 1 : 0;
@@ -418,8 +434,8 @@ int gsm_get_csq(void)
     while (*p >= '0' && *p <= '9')
         csq = csq * 10 + (*p++ - '0');
 
-    if (csq == 99)
-        return -1;      // 99 = necunoscut conform GSM
+    if (csq == 99 || csq > 31)
+        return -1;      // 99 = necunoscut, >31 = invalid conform GSM
 
     return csq;
 }

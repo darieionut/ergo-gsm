@@ -1,14 +1,13 @@
 # ==============================================================================
 # Makefile - ERGO GASALERT
-# Firmware OpenCPU pentru SIMCom A7670E (Unisoc 8910DM, ARM Cortex-A5)
+# Firmware STM32C011F4U6TR + SIMCom A7682E (AT commands via UART)
 #
-# NOTA: Acesta este un Makefile template/generic.
-#       Caile SDK_PATH si TOOLCHAIN_PATH trebuie adaptate la instalarea locala.
+# NOTA: Caile STM32CUBE_PATH si TOOLCHAIN_PATH trebuie adaptate la instalarea locala.
 #
 # Utilizare:
 #   make          - compileaza proiectul
 #   make clean    - sterge fisierele generate
-#   make flash    - flashuieste firmware prin UART (J4)
+#   make flash    - flashuieste firmware prin SWD (ST-Link)
 #   make help     - afiseaza acest mesaj
 # ==============================================================================
 
@@ -16,26 +15,22 @@
 # Configurare cai (ADAPTEAZA la instalarea ta)
 # ------------------------------------------------------------------------------
 
-# Calea catre SDK-ul SIMCom A7670E OpenCPU
-SDK_PATH ?= /opt/simcom/A7670E_SDK
+# Calea catre STM32CubeC0 HAL (STM32Cube_FW_C0)
+STM32CUBE_PATH ?= /opt/st/STM32Cube_FW_C0
 
-# Calea catre ARM GCC Toolchain
+# Calea catre ARM GCC Toolchain (bare-metal)
 TOOLCHAIN_PATH ?= /opt/arm-gcc/bin
 
-# Portul serial pentru programare prin J4 UART
-FLASH_PORT ?= /dev/ttyUSB0
-
-# Baud rate pentru programare
-FLASH_BAUD ?= 115200
-
 # ------------------------------------------------------------------------------
-# Toolchain ARM GCC (cross-compiler pentru Cortex-A5)
+# Toolchain ARM GCC (cross-compiler pentru Cortex-M0+)
 # ------------------------------------------------------------------------------
 
-CC      = $(TOOLCHAIN_PATH)/arm-linux-gnueabihf-gcc
-LD      = $(TOOLCHAIN_PATH)/arm-linux-gnueabihf-gcc
-OBJCOPY = $(TOOLCHAIN_PATH)/arm-linux-gnueabihf-objcopy
-SIZE    = $(TOOLCHAIN_PATH)/arm-linux-gnueabihf-size
+PREFIX  = $(TOOLCHAIN_PATH)/arm-none-eabi-
+CC      = $(PREFIX)gcc
+LD      = $(PREFIX)gcc
+OBJCOPY = $(PREFIX)objcopy
+OBJDUMP = $(PREFIX)objdump
+SIZE    = $(PREFIX)size
 
 # ------------------------------------------------------------------------------
 # Numele proiectului si fisierele de iesire
@@ -44,6 +39,7 @@ SIZE    = $(TOOLCHAIN_PATH)/arm-linux-gnueabihf-size
 PROJECT = ergo_gasalert
 ELF     = $(PROJECT).elf
 BIN     = $(PROJECT).bin
+HEX     = $(PROJECT).hex
 MAP     = $(PROJECT).map
 
 # ------------------------------------------------------------------------------
@@ -53,38 +49,61 @@ MAP     = $(PROJECT).map
 SRCS = \
     src/main.c      \
     src/config.c    \
+    src/gsm.c       \
     src/sms.c       \
     src/input.c     \
     src/led.c       \
     src/network.c
 
+# HAL sources (minim necesar)
+HAL_SRC = $(STM32CUBE_PATH)/Drivers/STM32C0xx_HAL_Driver/Src
+HAL_SRCS = \
+    $(HAL_SRC)/stm32c0xx_hal.c              \
+    $(HAL_SRC)/stm32c0xx_hal_cortex.c       \
+    $(HAL_SRC)/stm32c0xx_hal_rcc.c          \
+    $(HAL_SRC)/stm32c0xx_hal_gpio.c         \
+    $(HAL_SRC)/stm32c0xx_hal_uart.c         \
+    $(HAL_SRC)/stm32c0xx_hal_flash.c        \
+    $(HAL_SRC)/stm32c0xx_hal_flash_ex.c     \
+    $(HAL_SRC)/stm32c0xx_hal_iwdg.c
+
+# Startup si system (CMSIS)
+STARTUP = $(STM32CUBE_PATH)/Drivers/CMSIS/Device/ST/STM32C0xx/Source/Templates/gcc/startup_stm32c011xx.s
+SYSTEM  = $(STM32CUBE_PATH)/Drivers/CMSIS/Device/ST/STM32C0xx/Source/Templates/system_stm32c0xx.c
+
 # Fisiere obiect (generate in directorul build/)
 BUILD_DIR = build
-OBJS = $(patsubst src/%.c, $(BUILD_DIR)/%.o, $(SRCS))
+OBJS  = $(patsubst src/%.c, $(BUILD_DIR)/%.o, $(SRCS))
+OBJS += $(patsubst $(HAL_SRC)/%.c, $(BUILD_DIR)/hal_%.o, $(HAL_SRCS))
+OBJS += $(BUILD_DIR)/system_stm32c0xx.o
+OBJS += $(BUILD_DIR)/startup_stm32c011xx.o
 
 # ------------------------------------------------------------------------------
 # Include paths
 # ------------------------------------------------------------------------------
 
 INCLUDES = \
-    -I./include                     \
-    -I$(SDK_PATH)/include           \
-    -I$(SDK_PATH)/include/simcom
+    -I./include \
+    -I$(STM32CUBE_PATH)/Drivers/STM32C0xx_HAL_Driver/Inc \
+    -I$(STM32CUBE_PATH)/Drivers/CMSIS/Device/ST/STM32C0xx/Include \
+    -I$(STM32CUBE_PATH)/Drivers/CMSIS/Include
 
 # ------------------------------------------------------------------------------
 # Flaguri compilare C
 # ------------------------------------------------------------------------------
 
-# Arhitectura: ARM Cortex-A5, thumb mode, soft-float
+# Arhitectura: ARM Cortex-M0+, thumb mode (M0+ nu are ARM mode)
 ARCH_FLAGS = \
-    -mcpu=cortex-a5     \
-    -mthumb             \
+    -mcpu=cortex-m0plus  \
+    -mthumb              \
     -mfloat-abi=soft
 
 # Optimizare si standard C
 OPT_FLAGS = \
-    -Os             \
-    -std=c99
+    -Os                  \
+    -std=c11             \
+    -ffunction-sections  \
+    -fdata-sections
 
 # Avertismente
 WARN_FLAGS = \
@@ -94,51 +113,70 @@ WARN_FLAGS = \
 
 # Definitii preprocessor
 DEFINES = \
-    -DSIMCOM_A7670E     \
-    -DOPEN_CPU
+    -DSTM32C011xx        \
+    -DUSE_HAL_DRIVER
+
+# Debug UART (decomentati linia de mai jos pentru a activa UART2 debug pe PB6)
+# DEFINES += -DDEBUG_UART_ENABLE
 
 CFLAGS = $(ARCH_FLAGS) $(OPT_FLAGS) $(WARN_FLAGS) $(DEFINES) $(INCLUDES)
 
+# Flaguri assembler (pentru startup)
+ASFLAGS = $(ARCH_FLAGS) -x assembler-with-cpp $(DEFINES)
+
 # ------------------------------------------------------------------------------
-# Flaguri linker
+# Linker
 # ------------------------------------------------------------------------------
 
-# Script linker furnizat de SDK
-LDSCRIPT = $(SDK_PATH)/ld/opencpu.ld
-
-# Biblioteci SDK SIMCom
-LIBS = \
-    -L$(SDK_PATH)/lib   \
-    -lsimcom_opencpu    \
-    -lc                 \
-    -lm
+# Script linker STM32C011F4: 16KB Flash, 6KB RAM
+LDSCRIPT = STM32C011F4Ux_FLASH.ld
 
 LDFLAGS = \
-    $(ARCH_FLAGS)               \
-    -T$(LDSCRIPT)               \
-    -Wl,-Map=$(MAP)             \
-    -Wl,--gc-sections           \
-    $(LIBS)
+    $(ARCH_FLAGS)                \
+    -T$(LDSCRIPT)                \
+    -Wl,-Map=$(MAP)              \
+    -Wl,--gc-sections            \
+    -specs=nano.specs            \
+    -specs=nosys.specs           \
+    -lc                          \
+    -lm                          \
+    -lnosys
 
 # ------------------------------------------------------------------------------
 # Reguli build
 # ------------------------------------------------------------------------------
 
-# Regula default
 .PHONY: all
-all: $(BUILD_DIR) $(BIN)
+all: $(BUILD_DIR) $(BIN) $(HEX)
 	@echo ""
 	@echo ">>> Build complet: $(BIN)"
 	@$(SIZE) $(ELF)
+	@echo ""
+	@echo "ATENTIE: Verifica sectiunea .text sa NU depaseasca 0x3800 (14KB)!"
 
 # Creare director build
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-# Compilare fisiere .c -> .o
+# Compilare fisiere sursa aplicatie
 $(BUILD_DIR)/%.o: src/%.c
 	@echo "  CC  $<"
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compilare fisiere HAL
+$(BUILD_DIR)/hal_%.o: $(HAL_SRC)/%.c
+	@echo "  CC  $< (HAL)"
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compilare system CMSIS
+$(BUILD_DIR)/system_stm32c0xx.o: $(SYSTEM)
+	@echo "  CC  $< (CMSIS)"
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compilare startup assembler
+$(BUILD_DIR)/startup_stm32c011xx.o: $(STARTUP)
+	@echo "  AS  $<"
+	$(CC) $(ASFLAGS) -c $< -o $@
 
 # Linkare .o -> .elf
 $(ELF): $(OBJS)
@@ -150,6 +188,11 @@ $(BIN): $(ELF)
 	@echo "  BIN $@"
 	$(OBJCOPY) -O binary $< $@
 
+# Conversie .elf -> .hex (pentru ST-Link)
+$(HEX): $(ELF)
+	@echo "  HEX $@"
+	$(OBJCOPY) -O ihex $< $@
+
 # ------------------------------------------------------------------------------
 # Curatare
 # ------------------------------------------------------------------------------
@@ -157,18 +200,21 @@ $(BIN): $(ELF)
 .PHONY: clean
 clean:
 	@echo "Stergere fisiere generate..."
-	rm -rf $(BUILD_DIR) $(ELF) $(BIN) $(MAP)
+	rm -rf $(BUILD_DIR) $(ELF) $(BIN) $(HEX) $(MAP)
 
 # ------------------------------------------------------------------------------
-# Flashuire prin UART (J4: TX, RX, GND)
-# NOTA: Comanda exacta depinde de utilitarul de programare SIMCom
+# Flashuire prin SWD (ST-Link) - necesita st-flash sau STM32_Programmer_CLI
 # ------------------------------------------------------------------------------
 
 .PHONY: flash
 flash: $(BIN)
-	@echo "Flashuire $(BIN) pe $(FLASH_PORT) la $(FLASH_BAUD) baud..."
-	@echo "NOTA: Inlocuieste comanda de mai jos cu utilitarul SIMCom real"
-	# simcom_flash_tool --port $(FLASH_PORT) --baud $(FLASH_BAUD) --file $(BIN)
+	@echo "Flashuire $(BIN) prin SWD..."
+	st-flash write $(BIN) 0x08000000
+
+.PHONY: flash-hex
+flash-hex: $(HEX)
+	@echo "Flashuire $(HEX) prin SWD..."
+	STM32_Programmer_CLI -c port=SWD -w $(HEX) -v -rst
 
 # ------------------------------------------------------------------------------
 # Help
@@ -176,19 +222,18 @@ flash: $(BIN)
 
 .PHONY: help
 help:
-	@echo "ERGO GASALERT - Makefile"
+	@echo "ERGO GASALERT - Makefile (STM32C011F4U6TR + A7682E)"
 	@echo ""
 	@echo "Tinte disponibile:"
-	@echo "  make          - compileaza proiectul (produce $(BIN))"
-	@echo "  make clean    - sterge fisierele generate"
-	@echo "  make flash    - flashuieste firmware prin UART (J4)"
-	@echo "  make help     - afiseaza acest mesaj"
+	@echo "  make            - compileaza proiectul (produce $(BIN) si $(HEX))"
+	@echo "  make clean      - sterge fisierele generate"
+	@echo "  make flash      - flashuieste firmware prin SWD (st-flash)"
+	@echo "  make flash-hex  - flashuieste firmware prin SWD (STM32_Programmer_CLI)"
+	@echo "  make help       - afiseaza acest mesaj"
 	@echo ""
 	@echo "Variabile configurabile:"
-	@echo "  SDK_PATH      = $(SDK_PATH)"
-	@echo "  TOOLCHAIN_PATH= $(TOOLCHAIN_PATH)"
-	@echo "  FLASH_PORT    = $(FLASH_PORT)"
-	@echo "  FLASH_BAUD    = $(FLASH_BAUD)"
+	@echo "  STM32CUBE_PATH  = $(STM32CUBE_PATH)"
+	@echo "  TOOLCHAIN_PATH  = $(TOOLCHAIN_PATH)"
 	@echo ""
-	@echo "Exemplu cu cai custom:"
-	@echo "  make SDK_PATH=/home/user/simcom_sdk TOOLCHAIN_PATH=/usr/bin"
+	@echo "Activare debug UART (PB6):"
+	@echo "  Decomentati '-DDEBUG_UART_ENABLE' in DEFINES din Makefile"

@@ -165,6 +165,10 @@ void salveazaConfig(void)
     // --- Lock flash ---
     HAL_FLASH_Lock();
 
+    // Bariera memorie: asigura ca toate scrierile Flash sunt finalizate
+    // inainte de citirea inapoi (previne citirea datelor vechi din pipeline/cache)
+    __DSB();
+
     // Verificare: citeste inapoi si compara cu config curent
     if (memcmp((const void *)CONFIG_FLASH_ADDR, &config, sizeof(ConfigData)) != 0)
         dbg("[CONFIG] EROARE: Verificare post-write ESUATA!");
